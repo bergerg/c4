@@ -503,6 +503,9 @@ impl App {
                 *s = updated.clone();
                 true
             } else {
+                if s.is_ephemeral {
+                    cleanup_ephemeral_dirs(s.cwd.clone());
+                }
                 false
             }
         });
@@ -798,6 +801,28 @@ impl App {
         self.picker = Some(DirPicker::new());
     }
 
+    pub fn launch_ephemeral_session(&mut self) -> Option<String> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let tmp_dir = std::path::PathBuf::from(format!("/tmp/c4/ephemeral-{}", ts));
+        if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
+            return Some(format!("Failed to create ephemeral dir: {}", e));
+        }
+        match open_terminal_with_claude(&tmp_dir) {
+            Ok(()) => {
+                self.logs.info(format!("Ephemeral session launched in {}", tmp_dir.display()));
+                None
+            }
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                Some(e)
+            }
+        }
+    }
+
     pub fn close_picker(&mut self) {
         self.picker = None;
     }
@@ -965,6 +990,18 @@ end tell"#,
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         Err(if stderr.is_empty() { "iTerm2 not responding".into() } else { stderr })
     }
+}
+
+fn cleanup_ephemeral_dirs(cwd: std::path::PathBuf) {
+    std::thread::spawn(move || {
+        let _ = std::fs::remove_dir_all(&cwd);
+        if let Some(home) = dirs::home_dir() {
+            let encoded = crate::session::discovery::cwd_to_project_dir(&cwd.display().to_string());
+            let _ = std::fs::remove_dir_all(
+                home.join(".claude").join("projects").join(&encoded),
+            );
+        }
+    });
 }
 
 fn open_terminal_with_claude(dir: &PathBuf) -> Result<(), String> {

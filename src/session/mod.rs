@@ -27,6 +27,8 @@ pub struct Session {
     pub active_bg_jobs: u32,
     /// Whether this session is running inside iTerm2.
     pub in_iterm: bool,
+    /// Whether this session is ephemeral (runs in a temporary directory).
+    pub is_ephemeral: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

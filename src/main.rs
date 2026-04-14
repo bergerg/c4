@@ -58,6 +58,8 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    ensure_ephemeral_base_trusted();
+
     let cfg = config::Config::load();
 
     // Hotkey: CLI flag overrides config, --no-hotkey disables
@@ -229,6 +231,11 @@ fn run(
                         KeyCode::Char('r') => app.refresh(),
                         KeyCode::Char('l') => app.toggle_log_viewer(),
                         KeyCode::Char('c') => app.open_config_editor(),
+                        KeyCode::Char('e') => {
+                            if let Some(err) = app.launch_ephemeral_session() {
+                                app.set_status(err);
+                            }
+                        }
                         _ => {} // invalid key, just dismiss
                     }
                 } else {
@@ -440,6 +447,44 @@ fn handle_search_key(app: &mut App, code: KeyCode) {
             app.stop_search();
         }
         _ => {}
+    }
+}
+
+/// Ensure /tmp/c4 exists and is listed in ~/.claude/settings.json trustedDirectories.
+/// This makes Claude Code trust all ephemeral sessions launched under /tmp/c4/ without
+/// showing the "Do you trust this project?" prompt.
+fn ensure_ephemeral_base_trusted() {
+    let base = std::path::Path::new("/tmp/c4");
+    let _ = std::fs::create_dir_all(base);
+
+    let settings_path = match dirs::home_dir() {
+        Some(h) => h.join(".claude").join("settings.json"),
+        None => return,
+    };
+
+    let mut settings: serde_json::Value = settings_path
+        .exists()
+        .then(|| std::fs::read_to_string(&settings_path).ok())
+        .flatten()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or(serde_json::json!({}));
+
+    let trusted_dir = "/tmp/c4/*";
+    let already_trusted = settings["trustedDirectories"]
+        .as_array()
+        .map(|arr| arr.iter().any(|v| v.as_str() == Some(trusted_dir)))
+        .unwrap_or(false);
+
+    if !already_trusted {
+        let mut arr = settings["trustedDirectories"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        arr.push(serde_json::json!(trusted_dir));
+        settings["trustedDirectories"] = serde_json::Value::Array(arr);
+        if let Ok(json) = serde_json::to_string_pretty(&settings) {
+            let _ = std::fs::write(&settings_path, json);
+        }
     }
 }
 

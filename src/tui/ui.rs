@@ -181,7 +181,11 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
 
             Row::new(vec![
                 Cell::from(format!(" {} ", real_idx + 1)),
-                Cell::from(s.project_name.clone()),
+                if s.is_ephemeral {
+                    Cell::from(Span::styled("~ ephemeral", Style::default().fg(Color::Cyan)))
+                } else {
+                    Cell::from(s.project_name.clone())
+                },
                 Cell::from(
                     s.summary
                         .as_deref()
@@ -597,6 +601,8 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
             Span::styled(" SPACE > ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled("n", Style::default().fg(Color::Yellow)),
             Span::raw(":new  "),
+            Span::styled("e", Style::default().fg(Color::Yellow)),
+            Span::raw(":ephemeral  "),
             Span::styled("x", Style::default().fg(Color::Yellow)),
             Span::raw(":close  "),
             Span::styled("r", Style::default().fg(Color::Yellow)),

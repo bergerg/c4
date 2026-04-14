@@ -14,6 +14,7 @@ C4 reads Claude Code's session data from `~/.claude/` and presents a live overvi
 - **Focus switching** — press Enter to bring the selected session's iTerm2 tab into focus. When multiple terminals share the same session, a numbered picker lets you choose. Uses session ID caching for near-instant repeat focuses.
 - **Global hotkey** — a system-wide keyboard shortcut (default: `Option+Shift+=`) that brings C4's terminal into focus from any app. Requires macOS Accessibility permission on first use.
 - **New session launcher** — `Space n` opens a fuzzy directory picker. Type to filter, select a directory, and C4 opens a new iTerm2 tab with `claude` running in that directory.
+- **Ephemeral sessions** — `Space e` launches a clean-slate Claude Code session with no project context. Runs in a temporary directory, shows in the dashboard marked as `~ ephemeral`, and is fully cleaned up on exit (no history, no leftover files).
 - **Close session** — `Space x` terminates the selected Claude Code session.
 - **Search** — press `/` to filter sessions by name. Press Esc to clear.
 - **Sort** — press `s` / `S` to cycle sort columns forward/backward; `o` to toggle ascending/descending order.
@@ -119,6 +120,7 @@ c4 --no-hotkey                  # disable the global hotkey for this run
 | Key | Action                        |
 |-----|-------------------------------|
 | n   | New session (directory picker) |
+| e   | Launch ephemeral session      |
 | x   | Close selected session        |
 | r   | Manual refresh                |
 | l   | Open log viewer               |

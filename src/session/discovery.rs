@@ -84,8 +84,13 @@ fn project_name_from_cwd(cwd: &str) -> String {
         .unwrap_or_else(|| cwd.to_string())
 }
 
-fn cwd_to_project_dir(cwd: &str) -> String {
+pub(crate) fn cwd_to_project_dir(cwd: &str) -> String {
     cwd.replace('/', "-").replace('.', "-")
+}
+
+pub(crate) fn is_ephemeral_cwd(cwd: &str) -> bool {
+    cwd.starts_with("/tmp/c4/ephemeral-")
+        || cwd.starts_with("/private/tmp/c4/ephemeral-")
 }
 
 /// Best-effort decode of an encoded project dir name back to a real path.
@@ -260,15 +265,21 @@ pub fn discover_sessions() -> Result<Vec<Session>> {
         let jsonl_candidate = projects_dir
             .join(&project_key)
             .join(format!("{}.jsonl", sid));
-        let jsonl_path = if jsonl_candidate.exists() {
-            jsonl_candidate
-        } else {
-            continue; // no JSONL anywhere, skip
-        };
+
+        // For ephemeral sessions with a live PID, show them immediately even before
+        // the JSONL is written. The parser returns None for a missing file, so the
+        // session appears as WAITING with 0 messages until the first exchange.
+        let jsonl_exists = jsonl_candidate.exists();
+        if !jsonl_exists && !is_ephemeral_cwd(&sf.cwd) {
+            continue; // non-ephemeral with no JSONL: skip
+        }
+        if !jsonl_exists && !is_pid_alive(sf.pid) {
+            continue; // ephemeral but already dead with no JSONL: skip
+        }
 
         info_map.insert(sid.clone(), SessionInfo {
             session_id: sid.clone(),
-            jsonl_path,
+            jsonl_path: jsonl_candidate,
             pid: sf.pid,
             cwd: sf.cwd.clone(),
             started_at_ms: Some(sf.started_at),
@@ -323,8 +334,10 @@ pub fn discover_sessions() -> Result<Vec<Session>> {
             .map(|p| p.total_usage.estimated_cost_usd(parsed.as_ref().and_then(|p| p.model.as_deref())))
             .unwrap_or(0.0);
 
-        // Skip dead sessions with no real usage (no messages or zero cost)
-        if !alive && (message_count == 0 || cost == 0.0) {
+        // Skip dead sessions with no real usage.
+        // Also always skip dead ephemeral sessions regardless of cost — they disappear immediately
+        // on exit by design; cleanup is handled in App::refresh().
+        if !alive && (message_count == 0 || cost == 0.0 || is_ephemeral_cwd(&info.cwd)) {
             continue;
         }
 
@@ -371,6 +384,7 @@ pub fn discover_sessions() -> Result<Vec<Session>> {
             active_agents: parsed.as_ref().map(|p| p.active_agents).unwrap_or(0),
             active_bg_jobs: parsed.as_ref().map(|p| p.active_bg_jobs).unwrap_or(0),
             in_iterm: false,
+            is_ephemeral: is_ephemeral_cwd(&info.cwd),
         });
     }
 
@@ -389,4 +403,28 @@ pub fn discover_sessions() -> Result<Vec<Session>> {
     });
 
     Ok(sessions)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_ephemeral_cwd_matches_temp_prefix() {
+        assert!(is_ephemeral_cwd("/tmp/c4/ephemeral-1744123456"));
+        assert!(is_ephemeral_cwd("/tmp/c4/ephemeral-0"));
+    }
+
+    #[test]
+    fn test_is_ephemeral_cwd_does_not_match_normal_dirs() {
+        assert!(!is_ephemeral_cwd("/Users/bergerg/projects/c4"));
+        assert!(!is_ephemeral_cwd("/tmp/other-dir"));
+        assert!(!is_ephemeral_cwd(""));
+    }
+
+    #[test]
+    fn test_is_ephemeral_cwd_matches_private_tmp_prefix() {
+        assert!(is_ephemeral_cwd("/private/tmp/c4/ephemeral-1744123456"));
+        assert!(is_ephemeral_cwd("/private/tmp/c4/ephemeral-0"));
+    }
 }
