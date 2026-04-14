@@ -255,10 +255,10 @@ fn truncate(s: &str, max: usize) -> String {
     let s = s.trim();
     // Take first line
     let first_line = s.lines().next().unwrap_or(s);
-    if first_line.len() <= max {
+    if first_line.chars().count() <= max {
         first_line.to_string()
     } else {
-        format!("{}...", &first_line[..max - 3])
+        format!("{}...", first_line.chars().take(max - 3).collect::<String>())
     }
 }
 
@@ -296,6 +296,25 @@ mod tests {
     #[test]
     fn truncate_trims_surrounding_whitespace() {
         assert_eq!(truncate("  hello  ", 80), "hello");
+    }
+
+    #[test]
+    fn truncate_multibyte_no_panic() {
+        // Each emoji is 4 bytes. 25 emojis = 100 bytes but only 25 chars.
+        // Truncating at 10 chars would panic if using byte indexing.
+        let s = "🎉".repeat(25);
+        let result = truncate(&s, 10);
+        assert!(result.ends_with("..."));
+        assert!(result.chars().count() <= 10);
+    }
+
+    #[test]
+    fn truncate_cjk_no_panic() {
+        // CJK characters are 3 bytes each
+        let s = "中文字符测试内容超过限制显示省略号";
+        let result = truncate(s, 10);
+        assert!(result.ends_with("..."));
+        assert!(result.chars().count() <= 10);
     }
 
     // --- extract_preview ---
