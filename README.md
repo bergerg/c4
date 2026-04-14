@@ -191,9 +191,6 @@ Fallback polling interval in seconds. The file watcher triggers immediate refres
 
 Directory scanned by the new session picker (`Space n`) for project directories. C4 also includes previously used directories from `~/.claude/projects/`. Default: `~/projects`.
 
-> [!WARNING]
-> **Cost and context figures are estimates only.** C4 derives token counts and costs from local session files and the numbers will not match your actual usage. Do not use C4 for billing decisions. For authoritative usage and billing data, visit your [Claude profile page](https://claude.ai/settings/billing).
-
 ## How It Works
 
 C4 reads Claude Code's file-based session data:
@@ -214,6 +211,9 @@ Cost estimation uses per-model pricing:
 - Haiku: $0.80 / $4 / $0.08 / $1.00
 
 Context usage is estimated from the total input tokens of the most recent assistant turn.
+
+> [!WARNING]
+> **Cost and context figures are estimates only.** C4 derives token counts and costs from local session files and the numbers will not match your actual usage. Do not use C4 for billing decisions. For authoritative usage and billing data, visit your [Claude profile page](https://claude.ai/settings/billing).
 
 ## Building for Distribution
 
