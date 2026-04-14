@@ -762,9 +762,10 @@ fn draw_picker(f: &mut Frame, picker: &crate::tui::app::DirPicker) {
                 Style::default()
             };
 
+            let parent_color = if i == picker.selected { Color::White } else { Color::DarkGray };
             Row::new(vec![
                 Cell::from(Span::styled(name, style.fg(Color::Cyan))),
-                Cell::from(Span::styled(parent, style.fg(Color::DarkGray))),
+                Cell::from(Span::styled(parent, style.fg(parent_color))),
             ])
             .style(style)
         })
