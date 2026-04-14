@@ -250,7 +250,7 @@ fn collect_project_dirs() -> Vec<PathBuf> {
             // Decode: leading dash + dashes are path separators, but also dots were dashes
             // The encoded form is the path with / and . replaced by -
             // We can reconstruct by checking if the path exists
-            let candidate = PathBuf::from(name.replace('-', "/"));
+            let candidate = PathBuf::from(crate::session::discovery::decode_project_dir(&name));
             // Try the literal decoded path first
             if candidate.is_dir() && seen.insert(candidate.clone()) {
                 dirs.push(candidate);
@@ -807,7 +807,7 @@ impl App {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis();
-        let tmp_dir = std::path::PathBuf::from(format!("/tmp/c4/ephemeral-{}", ts));
+        let tmp_dir = crate::ephemeral_base_dir().join(format!("ephemeral-{}", ts));
         if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
             return Some(format!("Failed to create ephemeral dir: {}", e));
         }
@@ -957,13 +957,19 @@ impl App {
     }
 }
 
+/// Escape a string for embedding inside single quotes in a POSIX shell command.
+/// Single quotes are escaped using the standard '\'' technique.
+fn escape_for_single_quoted_shell(s: &str) -> String {
+    s.replace('\'', "'\\''")
+}
+
 /// Open a new iTerm2 tab and resume a session by ID.
 fn resume_in_new_tab(cwd: &str, session_id: &str) -> Result<(), String> {
     use std::process::Command;
 
-    let escaped_cwd = cwd.replace('\\', "\\\\").replace('"', "\\\"");
-    let escaped_id = session_id.replace('\\', "\\\\").replace('"', "\\\"");
-    let cmd = format!("claude --resume {}", escaped_id);
+    let escaped_cwd = escape_for_single_quoted_shell(cwd);
+    let escaped_id = escape_for_single_quoted_shell(session_id);
+    let cmd = format!("claude --resume '{}'", escaped_id);
 
     let script = format!(
         r#"tell application "iTerm2"
@@ -1008,7 +1014,7 @@ fn open_terminal_with_claude(dir: &PathBuf) -> Result<(), String> {
     use std::process::Command;
 
     let dir_str = dir.display().to_string();
-    let escaped_dir = dir_str.replace('\\', "\\\\").replace('"', "\\\"");
+    let escaped_dir = escape_for_single_quoted_shell(&dir_str);
 
     let script = format!(
         r#"tell application "iTerm2"
@@ -1208,6 +1214,23 @@ mod tests {
             ));
         }
         app
+    }
+
+    // --- escape_for_single_quoted_shell ---
+
+    #[test]
+    fn escape_single_quotes_in_path() {
+        // The escape_for_single_quoted_shell function must turn ' into '\''
+        let path = "/Users/o'reilly/projects";
+        let escaped = escape_for_single_quoted_shell(path);
+        assert_eq!(escaped, "/Users/o'\\''reilly/projects");
+    }
+
+    #[test]
+    fn escape_clean_path_unchanged() {
+        let path = "/Users/bergerg/projects/c4";
+        let escaped = escape_for_single_quoted_shell(path);
+        assert_eq!(escaped, "/Users/bergerg/projects/c4");
     }
 
     // --- fuzzy_match ---

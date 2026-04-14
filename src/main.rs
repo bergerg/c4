@@ -450,12 +450,20 @@ fn handle_search_key(app: &mut App, code: KeyCode) {
     }
 }
 
-/// Ensure /tmp/c4 exists and is listed in ~/.claude/settings.json trustedDirectories.
-/// This makes Claude Code trust all ephemeral sessions launched under /tmp/c4/ without
+/// Returns the user-owned base directory for ephemeral sessions.
+/// Uses ~/.local/share/c4/ephemeral/ which is not world-writable, unlike /tmp.
+pub fn ephemeral_base_dir() -> std::path::PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join(".local/share/c4/ephemeral")
+}
+
+/// Ensure the ephemeral base dir exists and is listed in ~/.claude/settings.json trustedDirectories.
+/// This makes Claude Code trust all ephemeral sessions launched under the base dir without
 /// showing the "Do you trust this project?" prompt.
 fn ensure_ephemeral_base_trusted() {
-    let base = std::path::Path::new("/tmp/c4");
-    let _ = std::fs::create_dir_all(base);
+    let base = ephemeral_base_dir();
+    let _ = std::fs::create_dir_all(&base);
 
     let settings_path = match dirs::home_dir() {
         Some(h) => h.join(".claude").join("settings.json"),
@@ -469,10 +477,10 @@ fn ensure_ephemeral_base_trusted() {
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or(serde_json::json!({}));
 
-    let trusted_dir = "/tmp/c4/*";
+    let trusted_glob = format!("{}/*", base.display());
     let already_trusted = settings["trustedDirectories"]
         .as_array()
-        .map(|arr| arr.iter().any(|v| v.as_str() == Some(trusted_dir)))
+        .map(|arr| arr.iter().any(|v| v.as_str() == Some(&trusted_glob)))
         .unwrap_or(false);
 
     if !already_trusted {
@@ -480,7 +488,7 @@ fn ensure_ephemeral_base_trusted() {
             .as_array()
             .cloned()
             .unwrap_or_default();
-        arr.push(serde_json::json!(trusted_dir));
+        arr.push(serde_json::json!(trusted_glob));
         settings["trustedDirectories"] = serde_json::Value::Array(arr);
         if let Ok(json) = serde_json::to_string_pretty(&settings) {
             let _ = std::fs::write(&settings_path, json);

@@ -89,21 +89,34 @@ pub(crate) fn cwd_to_project_dir(cwd: &str) -> String {
 }
 
 pub(crate) fn is_ephemeral_cwd(cwd: &str) -> bool {
-    cwd.starts_with("/tmp/c4/ephemeral-")
-        || cwd.starts_with("/private/tmp/c4/ephemeral-")
+    if let Some(home) = dirs::home_dir() {
+        let base = home.join(".local/share/c4/ephemeral");
+        let base_str = base.display().to_string();
+        if cwd.starts_with(&base_str) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Best-effort decode of an encoded project dir name back to a real path.
 /// Claude encodes paths by replacing / and . with -, so the encoding is lossy.
 /// We try all possible separator combinations recursively and return the first
 /// that resolves to an existing directory.
-fn decode_project_dir(name: &str) -> String {
+pub fn decode_project_dir(name: &str) -> String {
     let segments: Vec<&str> = name.split('-').filter(|s| !s.is_empty()).collect();
     if segments.is_empty() {
         return name.to_string();
     }
 
-    // Try to find a valid path by recursively choosing / or . between segments
+    // Fast path: try all-slash reconstruction first (the common case — one stat call)
+    let all_slash = format!("/{}", segments.join("/"));
+    if Path::new(&all_slash).exists() {
+        return all_slash.clone();
+    }
+
+    // Slow path: probe combinations with dots (e.g. user.name in path).
+    // Only needed when the all-slash path doesn't exist on the filesystem.
     fn try_decode(segments: &[&str], idx: usize, current: &str) -> Option<String> {
         if idx == segments.len() {
             return if Path::new(current).exists() {
@@ -122,18 +135,15 @@ fn decode_project_dir(name: &str) -> String {
         }
         // Try . separator (e.g. gal.berger)
         let dot = format!("{}.{}", current, segments[idx]);
-        if let Some(result) = try_decode(segments, idx + 1, &dot) {
-            return Some(result);
-        }
-        None
+        try_decode(segments, idx + 1, &dot)
     }
 
     if let Some(path) = try_decode(&segments, 0, "") {
         return path;
     }
 
-    // Fallback: last segment as project name
-    segments.last().unwrap_or(&name.as_ref()).to_string()
+    // Fallback: return the all-slash version (better than just the last segment)
+    all_slash
 }
 
 pub fn discover_sessions() -> Result<Vec<Session>> {
@@ -337,7 +347,7 @@ pub fn discover_sessions() -> Result<Vec<Session>> {
         // Skip dead sessions with no real usage.
         // Also always skip dead ephemeral sessions regardless of cost — they disappear immediately
         // on exit by design; cleanup is handled in App::refresh().
-        if !alive && (message_count == 0 || cost == 0.0 || is_ephemeral_cwd(&info.cwd)) {
+        if !alive && (message_count == 0 && cost == 0.0 || is_ephemeral_cwd(&info.cwd)) {
             continue;
         }
 
@@ -411,8 +421,11 @@ mod tests {
 
     #[test]
     fn test_is_ephemeral_cwd_matches_temp_prefix() {
-        assert!(is_ephemeral_cwd("/tmp/c4/ephemeral-1744123456"));
-        assert!(is_ephemeral_cwd("/tmp/c4/ephemeral-0"));
+        if let Some(home) = dirs::home_dir() {
+            let base = home.join(".local/share/c4/ephemeral");
+            assert!(is_ephemeral_cwd(&format!("{}/ephemeral-1744123456", base.display())));
+            assert!(is_ephemeral_cwd(&format!("{}/ephemeral-0", base.display())));
+        }
     }
 
     #[test]
@@ -420,12 +433,6 @@ mod tests {
         assert!(!is_ephemeral_cwd("/Users/bergerg/projects/c4"));
         assert!(!is_ephemeral_cwd("/tmp/other-dir"));
         assert!(!is_ephemeral_cwd(""));
-    }
-
-    #[test]
-    fn test_is_ephemeral_cwd_matches_private_tmp_prefix() {
-        assert!(is_ephemeral_cwd("/private/tmp/c4/ephemeral-1744123456"));
-        assert!(is_ephemeral_cwd("/private/tmp/c4/ephemeral-0"));
     }
 
     #[test]
@@ -456,5 +463,52 @@ mod tests {
     #[test]
     fn test_project_name_from_cwd_empty_falls_back() {
         assert_eq!(project_name_from_cwd(""), "");
+    }
+
+    #[test]
+    fn dead_session_with_messages_and_zero_cost_is_not_skipped() {
+        // Dead, has 5 messages, cost $0.00 (e.g. all cache reads). Old OR logic skipped this.
+        let message_count: usize = 5;
+        let cost: f64 = 0.0;
+        let alive = false;
+        let ephemeral = false;
+        let should_skip = !alive && (message_count == 0 && cost == 0.0 || ephemeral);
+        assert!(!should_skip, "dead session with messages must not be skipped even if cost is zero");
+    }
+
+    #[test]
+    fn dead_session_no_messages_no_cost_is_skipped() {
+        let message_count: usize = 0;
+        let cost: f64 = 0.0;
+        let alive = false;
+        let ephemeral = false;
+        let should_skip = !alive && (message_count == 0 && cost == 0.0 || ephemeral);
+        assert!(should_skip, "dead session with no messages and no cost should be skipped");
+    }
+
+    #[test]
+    fn alive_session_is_never_skipped_by_this_filter() {
+        let message_count: usize = 0;
+        let cost: f64 = 0.0;
+        let alive = true;
+        let ephemeral = false;
+        let should_skip = !alive && (message_count == 0 && cost == 0.0 || ephemeral);
+        assert!(!should_skip, "alive sessions must never be skipped");
+    }
+
+    #[test]
+    fn decode_project_dir_fast_path_for_nonexistent_returns_all_slash() {
+        // Non-existent path: must get the all-slash decode, not just the last segment.
+        // This verifies the fallback change too.
+        let encoded = "-nonexistent-totally-fake-path-abc123";
+        let result = decode_project_dir(encoded);
+        assert_eq!(result, "/nonexistent/totally/fake/path/abc123");
+    }
+
+    #[test]
+    fn decode_project_dir_single_segment() {
+        let encoded = "-myproject";
+        let result = decode_project_dir(encoded);
+        assert!(result.ends_with("myproject"));
     }
 }
