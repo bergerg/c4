@@ -204,6 +204,7 @@ fn run(
 
     loop {
         app.expire_status();
+        app.poll_update();
         terminal.draw(|f| ui::draw(f, &mut app))?;
 
         if watch_rx.try_recv().is_ok() {

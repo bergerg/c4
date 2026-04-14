@@ -160,6 +160,9 @@ pub struct App {
     pub search_query: String,
     /// Indices into `sessions` that match the current search.
     pub filtered_indices: Vec<usize>,
+    /// Result channel for background update thread. None = not running,
+    /// Some(None) = in progress, Some(Some(msg)) = finished.
+    pub update_result: Arc<Mutex<Option<String>>>,
 }
 
 pub struct DirPicker {
@@ -387,6 +390,7 @@ impl App {
             searching: false,
             search_query: String::new(),
             filtered_indices: Vec::new(),
+            update_result: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -398,6 +402,28 @@ impl App {
     pub fn clear_status(&mut self) {
         self.status_message = None;
         self.status_message_at = None;
+    }
+
+    /// Check if the background update thread has finished and handle the result.
+    /// Called each main-loop tick. On completion: shows the result inline in
+    /// the config editor (keeps it open) and clears the updating flag.
+    pub fn poll_update(&mut self) {
+        let result = {
+            let mut slot = self.update_result.lock().unwrap();
+            slot.take()
+        };
+        let Some(msg) = result else { return };
+
+        self.logs.info(format!("Update: {}", msg));
+
+        if let Some(ce) = &mut self.config_editor {
+            if msg.starts_with("Update failed") || msg.starts_with("Cannot") {
+                ce.error = Some(msg);
+            } else {
+                ce.success = Some(msg);
+            }
+            ce.updating = false;
+        }
     }
 
     /// Clear status message if it's been showing for more than 10 seconds.
@@ -731,19 +757,17 @@ impl App {
                 ce.updating = true;
                 ce.error = None;
                 ce.success = None;
-                let logs = self.logs.clone();
 
-                // Run update in background thread
-                let result = crate::updater::check_and_update();
-                logs.info(format!("Update: {}", result));
-                if let Some(ce) = &mut self.config_editor {
-                    if result.starts_with("Update failed") || result.starts_with("Cannot") {
-                        ce.error = Some(result);
-                    } else {
-                        ce.success = Some(result);
-                    }
-                    ce.updating = false;
+                // Reset the shared result slot and spawn a background thread.
+                {
+                    let mut slot = self.update_result.lock().unwrap();
+                    *slot = None;
                 }
+                let slot = self.update_result.clone();
+                std::thread::spawn(move || {
+                    let result = crate::updater::check_and_update();
+                    *slot.lock().unwrap() = Some(result);
+                });
                 return;
             }
 
