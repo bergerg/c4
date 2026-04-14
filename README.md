@@ -191,6 +191,8 @@ Fallback polling interval in seconds. The file watcher triggers immediate refres
 
 Directory scanned by the new session picker (`Space n`) for project directories. C4 also includes previously used directories from `~/.claude/projects/`. Default: `~/projects`.
 
+> **Note on cost and context estimates:** The token counts, costs, and context usage shown in C4 are approximations derived from local session files. They are not authoritative. For accurate usage and billing data, visit your [Claude profile page](https://claude.ai/settings/billing).
+
 ## How It Works
 
 C4 reads Claude Code's file-based session data:
