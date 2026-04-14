@@ -91,6 +91,23 @@ pub fn parse_session_jsonl(path: &Path) -> Result<ParsedSession> {
             continue;
         }
 
+        // Skip system-injected user messages (slash commands, local-command hooks, etc.).
+        // These are XML-wrapped metadata entries, not real user messages.
+        let is_system_injection = entry_type == "user" && entry.message.as_ref().map(|m| {
+            match &m.content {
+                Some(serde_json::Value::String(s)) => s.trim_start().starts_with('<'),
+                Some(serde_json::Value::Array(arr)) => arr.first().and_then(|v| v.as_object())
+                    .and_then(|o| o.get("text"))
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.trim_start().starts_with('<'))
+                    .unwrap_or(false),
+                _ => false,
+            }
+        }).unwrap_or(false);
+        if is_system_injection {
+            continue;
+        }
+
         message_count += 1;
 
         if let Some(branch) = &entry.git_branch {

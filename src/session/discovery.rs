@@ -128,14 +128,19 @@ pub fn decode_project_dir(name: &str) -> String {
         if idx == 0 {
             return try_decode(segments, 1, &format!("/{}", segments[0]));
         }
-        // Try / separator first (more common)
+        // Try / separator first (new path component — most common)
         let slash = format!("{}/{}", current, segments[idx]);
         if let Some(result) = try_decode(segments, idx + 1, &slash) {
             return Some(result);
         }
-        // Try . separator (e.g. gal.berger)
+        // Try . separator (e.g. user.name in path)
         let dot = format!("{}.{}", current, segments[idx]);
-        try_decode(segments, idx + 1, &dot)
+        if let Some(result) = try_decode(segments, idx + 1, &dot) {
+            return Some(result);
+        }
+        // Try - separator (original hyphen in directory name, e.g. my-app)
+        let hyphen = format!("{}-{}", current, segments[idx]);
+        try_decode(segments, idx + 1, &hyphen)
     }
 
     if let Some(path) = try_decode(&segments, 0, "") {
@@ -295,6 +300,96 @@ pub fn discover_sessions() -> Result<Vec<Session>> {
             started_at_ms: Some(sf.started_at),
             index_entry: None,
         });
+    }
+
+    // 3b. Fix /clear creating dead new sessions.
+    //
+    // When `/clear` is used in Claude Code, a new JSONL is created with a new session_id,
+    // but ~/.claude/sessions/<pid>.json is NOT updated — it keeps pointing to the old
+    // session_id. As a result, c4 sees the old session as ALIVE (has PID) and the new
+    // session as DEAD (pid=0). We detect this and transfer the PID to the newer session.
+    //
+    // Heuristic: within a project dir, if there is exactly one alive session and at least
+    // one pid=0 session whose JSONL is newer than the alive session's JSONL, the newest
+    // such session inherits the PID (and the old session's pid is cleared to 0 so it
+    // subsequently shows as DEAD).
+    {
+        // Group session IDs by project dir (parent dir of the JSONL path).
+        let mut by_project_dir: HashMap<PathBuf, Vec<String>> = HashMap::new();
+        for (sid, info) in &info_map {
+            let proj = info.jsonl_path.parent().map(PathBuf::from).unwrap_or_default();
+            by_project_dir.entry(proj).or_default().push(sid.clone());
+        }
+
+        // Collect (alive_sid, dead_sid) pairs to swap.
+        let mut pid_swaps: Vec<(String, String)> = Vec::new();
+
+        for sids in by_project_dir.values() {
+            if sids.len() < 2 {
+                continue;
+            }
+            // Find exactly one alive session in this project.
+            let alive_sids: Vec<&String> = sids
+                .iter()
+                .filter(|s| {
+                    info_map
+                        .get(*s)
+                        .map(|i| i.pid > 0 && is_pid_alive(i.pid))
+                        .unwrap_or(false)
+                })
+                .collect();
+            if alive_sids.len() != 1 {
+                continue;
+            }
+            let alive_sid = alive_sids[0].clone();
+            let alive_mtime = info_map
+                .get(&alive_sid)
+                .and_then(|i| fs::metadata(&i.jsonl_path).ok())
+                .and_then(|m| m.modified().ok());
+            let Some(alive_mtime) = alive_mtime else { continue };
+
+            // Among pid=0 sessions, find the most recently modified one that is
+            // newer than the alive session's JSONL.
+            let mut best: Option<(String, std::time::SystemTime)> = None;
+            for sid in sids {
+                let info = info_map.get(sid).unwrap();
+                if info.pid != 0 {
+                    continue;
+                }
+                let dead_mtime = fs::metadata(&info.jsonl_path)
+                    .ok()
+                    .and_then(|m| m.modified().ok());
+                if let Some(dm) = dead_mtime {
+                    if dm > alive_mtime {
+                        if best.as_ref().map(|(_, t)| dm > *t).unwrap_or(true) {
+                            best = Some((sid.clone(), dm));
+                        }
+                    }
+                }
+            }
+
+            if let Some((dead_sid, _)) = best {
+                pid_swaps.push((alive_sid, dead_sid));
+            }
+        }
+
+        for (alive_sid, dead_sid) in pid_swaps {
+            let (pid, cwd) = info_map
+                .get(&alive_sid)
+                .map(|i| (i.pid, i.cwd.clone()))
+                .unwrap_or((0, String::new()));
+            if let Some(info) = info_map.get_mut(&dead_sid) {
+                info.pid = pid;
+                // Inherit cwd so project_name is derived from the real path,
+                // not from the lossy decode of the project directory name.
+                if !cwd.is_empty() {
+                    info.cwd = cwd;
+                }
+            }
+            if let Some(info) = info_map.get_mut(&alive_sid) {
+                info.pid = 0;
+            }
+        }
     }
 
     // 4. Build Session structs from unified info
@@ -510,5 +605,24 @@ mod tests {
         let encoded = "-myproject";
         let result = decode_project_dir(encoded);
         assert!(result.ends_with("myproject"));
+    }
+
+    #[test]
+    fn decode_project_dir_hyphenated_project_name() {
+        // Paths like /Users/bergerg/projects/home-ops are encoded as
+        // -Users-bergerg-projects-home-ops. The decoder must reconstruct
+        // the full "home-ops" name, not just "ops".
+        if let Some(home) = dirs::home_dir() {
+            let real_path = home.join("projects").join("home-ops");
+            if real_path.exists() {
+                let encoded = format!(
+                    "-{}",
+                    real_path.display().to_string().replace('/', "-").replace('.', "-").trim_start_matches('-')
+                );
+                let result = decode_project_dir(&encoded);
+                assert_eq!(result, real_path.display().to_string(),
+                    "hyphenated project name must decode to full path");
+            }
+        }
     }
 }
