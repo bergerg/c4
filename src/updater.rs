@@ -8,114 +8,72 @@ pub fn current_version() -> &'static str {
 
 /// Check for updates and install if available.
 /// Returns a status message.
-pub fn check_and_update(repo_url: &str) -> String {
-    match do_update(repo_url) {
+const REPO_RAW_BASE: &str = "https://raw.githubusercontent.com/bergerg/c4/main/";
+
+pub fn check_and_update() -> String {
+    match do_update() {
         Ok(msg) => msg,
         Err(e) => format!("Update failed: {}", e),
     }
 }
 
-/// Returns a unique temp directory path for the update process.
-/// Uses PID + nanosecond timestamp to avoid predictable names in world-writable /tmp.
-fn update_tmpdir() -> std::path::PathBuf {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    std::env::temp_dir().join(format!("c4-update-{}-{}", std::process::id(), nanos))
-}
+/// Fetches the remote Cargo.toml and returns the version string if a newer version is available.
+fn fetch_remote_version() -> Result<Option<String>, String> {
+    let cargo_url = format!("{}Cargo.toml", REPO_RAW_BASE);
 
-fn do_update(repo_url: &str) -> Result<String, String> {
-    // Clone to temp dir
-    // SECURITY NOTE: This updater clones from a user-configurable URL with no
-    // signature or checksum verification. Only use trusted repo_url values.
-    let tmpdir = update_tmpdir();
-    let _ = std::fs::remove_dir_all(&tmpdir);
-
-    let status = Command::new("git")
-        .args(["clone", "--depth", "1", repo_url, &tmpdir.display().to_string()])
+    let output = Command::new("curl")
+        .args(["-sSf", "--max-time", "10", &cargo_url])
         .output()
-        .map_err(|e| format!("git clone failed: {}", e))?;
+        .map_err(|e| format!("curl failed: {}", e))?;
 
-    if !status.status.success() {
-        let stderr = String::from_utf8_lossy(&status.stderr).to_string();
-        let _ = std::fs::remove_dir_all(&tmpdir);
-        return Err(format!("git clone failed: {}", stderr.trim()));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("Failed to fetch remote version: {}", stderr.trim()));
     }
 
-    // Read remote version from Cargo.toml
-    let cargo_toml = std::fs::read_to_string(tmpdir.join("Cargo.toml"))
-        .map_err(|e| {
-            let _ = std::fs::remove_dir_all(&tmpdir);
-            format!("Cannot read Cargo.toml: {}", e)
-        })?;
-
-    let remote_version = cargo_toml
+    let content = String::from_utf8_lossy(&output.stdout);
+    let remote_version = content
         .lines()
         .find(|l| l.starts_with("version"))
         .and_then(|l| l.split('"').nth(1))
-        .ok_or_else(|| {
-            let _ = std::fs::remove_dir_all(&tmpdir);
-            "Cannot parse version from remote Cargo.toml".to_string()
-        })?
+        .ok_or_else(|| "Cannot parse version from remote Cargo.toml".to_string())?
         .to_string();
 
-    if remote_version == CURRENT_VERSION {
-        let _ = std::fs::remove_dir_all(&tmpdir);
+    if is_newer(&remote_version, CURRENT_VERSION) {
+        Ok(Some(remote_version))
+    } else {
+        Ok(None)
+    }
+}
+
+fn do_update() -> Result<String, String> {
+    let script_url = format!("{}install.sh", REPO_RAW_BASE);
+
+    // Lightweight version check — fetches only Cargo.toml, no clone
+    let new_version = fetch_remote_version()?;
+    let Some(new_version) = new_version else {
         return Ok(format!("Already up to date (v{})", CURRENT_VERSION));
-    }
+    };
 
-    // Compare versions (simple semver: higher = newer)
-    if !is_newer(&remote_version, CURRENT_VERSION) {
-        let _ = std::fs::remove_dir_all(&tmpdir);
-        return Ok(format!(
-            "Already up to date (v{}, remote v{})",
-            CURRENT_VERSION, remote_version
-        ));
-    }
-
-    // Build
-    let build = Command::new("cargo")
-        .args(["build", "--release"])
-        .current_dir(&tmpdir)
+    // Run the install script with --update flag
+    let cmd = format!("curl -sSf '{}' | bash -s -- --update", script_url);
+    let output = Command::new("bash")
+        .arg("-c")
+        .arg(&cmd)
         .output()
-        .map_err(|e| {
-            let _ = std::fs::remove_dir_all(&tmpdir);
-            format!("cargo build failed: {}", e)
-        })?;
+        .map_err(|e| format!("Failed to run update script: {}", e))?;
 
-    if !build.status.success() {
-        let stderr = String::from_utf8_lossy(&build.stderr).to_string();
-        let _ = std::fs::remove_dir_all(&tmpdir);
-        return Err(format!("Build failed: {}", stderr.trim().lines().last().unwrap_or("")));
+    if output.status.success() {
+        Ok(format!(
+            "Updated v{} -> v{}. Restart c4 to use new version.",
+            CURRENT_VERSION, new_version
+        ))
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let msg = if !stderr.is_empty() { stderr } else { stdout };
+        Err(msg.trim().to_string())
     }
-
-    // Replace the current binary
-    let new_binary = tmpdir.join("target/release/c4");
-    let current_binary = std::env::current_exe().map_err(|e| {
-        let _ = std::fs::remove_dir_all(&tmpdir);
-        format!("Cannot find current exe: {}", e)
-    })?;
-
-    // Copy new to temp file, then atomically rename (atomic on POSIX)
-    let tmp_binary = current_binary.with_extension("tmp");
-    std::fs::copy(&new_binary, &tmp_binary).map_err(|e| {
-        let _ = std::fs::remove_dir_all(&tmpdir);
-        format!("Cannot write temporary binary: {}. Try: sudo c4 or check permissions.", e)
-    })?;
-    std::fs::rename(&tmp_binary, &current_binary).map_err(|e| {
-        let _ = std::fs::remove_dir_all(&tmpdir);
-        let _ = std::fs::remove_file(&tmp_binary);
-        format!("Cannot replace binary: {}. Try: sudo c4 or check permissions.", e)
-    })?;
-
-    let _ = std::fs::remove_dir_all(&tmpdir);
-
-    Ok(format!(
-        "Updated v{} -> v{}. Restart c4 to use new version.",
-        CURRENT_VERSION, remote_version
-    ))
 }
 
 fn is_newer(remote: &str, current: &str) -> bool {
@@ -169,17 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn random_update_tmpdir_is_unique() {
-        let a = update_tmpdir();
-        let b = update_tmpdir();
-        assert_ne!(a, b, "two calls must return different paths");
-    }
-
-    #[test]
-    fn random_update_tmpdir_not_predictable_from_pid() {
-        let pid = std::process::id();
-        let predictable = std::env::temp_dir().join(format!("c4-update-{}", pid));
-        let actual = update_tmpdir();
-        assert_ne!(actual, predictable, "dir must not be guessable from PID alone");
+    fn repo_raw_base_points_to_install_sh() {
+        assert!(format!("{}install.sh", REPO_RAW_BASE).contains("bergerg/c4"));
     }
 }

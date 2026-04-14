@@ -23,11 +23,15 @@ if ! command -v cargo &>/dev/null; then
     source "$HOME/.cargo/env"
 fi
 
-# Clone or update
+# Clone to temp dir
 TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 
-echo "Downloading c4..."
+if [ "$1" = "--update" ]; then
+    echo "Updating c4..."
+else
+    echo "Downloading c4..."
+fi
 git clone --depth 1 https://github.com/bergerg/c4.git "$TMPDIR/c4"
 
 echo "Building..."
@@ -39,5 +43,9 @@ install -d "$PREFIX/bin"
 install -m 755 target/release/c4 "$PREFIX/bin/c4"
 
 echo ""
-echo "Done! Run 'c4' to start."
-echo "To uninstall: curl -sSf <install-url> | bash -s -- --uninstall"
+if [ "$1" = "--update" ]; then
+    echo "Done! c4 updated. Restart to use the new version."
+else
+    echo "Done! Run 'c4' to start."
+    echo "To uninstall: curl -sSf <install-url> | bash -s -- --uninstall"
+fi

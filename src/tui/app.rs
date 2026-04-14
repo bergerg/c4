@@ -731,11 +731,10 @@ impl App {
                 ce.updating = true;
                 ce.error = None;
                 ce.success = None;
-                let repo_url = self.config.repo_url.clone();
                 let logs = self.logs.clone();
 
                 // Run update in background thread
-                let result = crate::updater::check_and_update(&repo_url);
+                let result = crate::updater::check_and_update();
                 logs.info(format!("Update: {}", result));
                 if let Some(ce) = &mut self.config_editor {
                     if result.starts_with("Update failed") || result.starts_with("Cannot") {

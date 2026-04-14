@@ -10,14 +10,8 @@ pub struct Config {
     pub refresh_interval_secs: u64,
     #[serde(default = "default_projects_dir")]
     pub projects_dir: String,
-    #[serde(default = "default_repo_url")]
-    pub repo_url: String,
     #[serde(default = "default_view_mode")]
     pub view_mode: String,
-}
-
-fn default_repo_url() -> String {
-    "https://github.com/YOUR_USER/c4.git".into()
 }
 
 fn default_view_mode() -> String {
@@ -46,7 +40,6 @@ impl Default for Config {
             hotkey: default_hotkey(),
             refresh_interval_secs: default_refresh_secs(),
             projects_dir: default_projects_dir(),
-            repo_url: default_repo_url(),
             view_mode: default_view_mode(),
         }
     }
@@ -93,7 +86,6 @@ impl Config {
             ),
             ("projects_dir", "Projects Directory", self.projects_dir.clone()),
             ("view_mode", "View Mode", self.view_mode.clone()),
-            ("repo_url", "Update Repo URL", self.repo_url.clone()),
         ]
     }
 
@@ -129,10 +121,6 @@ impl Config {
                     _ => Err("Must be 'compact' or 'detailed'".into()),
                 }
             }
-            "repo_url" => {
-                self.repo_url = value.to_string();
-                Ok(())
-            }
             _ => Err(format!("Unknown key: {}", key)),
         }
     }
@@ -158,9 +146,9 @@ mod tests {
     }
 
     #[test]
-    fn fields_returns_five_entries() {
+    fn fields_returns_four_entries() {
         let cfg = Config::default();
-        assert_eq!(cfg.fields().len(), 5);
+        assert_eq!(cfg.fields().len(), 4);
     }
 
     #[test]
@@ -171,7 +159,6 @@ mod tests {
         assert!(keys.contains(&"refresh_interval_secs"));
         assert!(keys.contains(&"projects_dir"));
         assert!(keys.contains(&"view_mode"));
-        assert!(keys.contains(&"repo_url"));
     }
 
     #[test]
@@ -212,13 +199,6 @@ mod tests {
     fn set_field_refresh_secs_non_numeric_returns_err() {
         let mut cfg = Config::default();
         assert!(cfg.set_field("refresh_interval_secs", "abc").is_err());
-    }
-
-    #[test]
-    fn set_field_repo_url_accepts_any_string() {
-        let mut cfg = Config::default();
-        assert!(cfg.set_field("repo_url", "https://example.com/repo.git").is_ok());
-        assert_eq!(cfg.repo_url, "https://example.com/repo.git");
     }
 
     #[test]
