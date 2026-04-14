@@ -89,8 +89,14 @@ pub(crate) fn cwd_to_project_dir(cwd: &str) -> String {
 }
 
 pub(crate) fn is_ephemeral_cwd(cwd: &str) -> bool {
-    cwd.starts_with("/tmp/c4/ephemeral-")
-        || cwd.starts_with("/private/tmp/c4/ephemeral-")
+    if let Some(home) = dirs::home_dir() {
+        let base = home.join(".local/share/c4/ephemeral");
+        let base_str = base.display().to_string();
+        if cwd.starts_with(&base_str) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Best-effort decode of an encoded project dir name back to a real path.
@@ -411,8 +417,11 @@ mod tests {
 
     #[test]
     fn test_is_ephemeral_cwd_matches_temp_prefix() {
-        assert!(is_ephemeral_cwd("/tmp/c4/ephemeral-1744123456"));
-        assert!(is_ephemeral_cwd("/tmp/c4/ephemeral-0"));
+        if let Some(home) = dirs::home_dir() {
+            let base = home.join(".local/share/c4/ephemeral");
+            assert!(is_ephemeral_cwd(&format!("{}/ephemeral-1744123456", base.display())));
+            assert!(is_ephemeral_cwd(&format!("{}/ephemeral-0", base.display())));
+        }
     }
 
     #[test]
@@ -420,12 +429,6 @@ mod tests {
         assert!(!is_ephemeral_cwd("/Users/bergerg/projects/c4"));
         assert!(!is_ephemeral_cwd("/tmp/other-dir"));
         assert!(!is_ephemeral_cwd(""));
-    }
-
-    #[test]
-    fn test_is_ephemeral_cwd_matches_private_tmp_prefix() {
-        assert!(is_ephemeral_cwd("/private/tmp/c4/ephemeral-1744123456"));
-        assert!(is_ephemeral_cwd("/private/tmp/c4/ephemeral-0"));
     }
 
     #[test]

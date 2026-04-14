@@ -807,7 +807,7 @@ impl App {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis();
-        let tmp_dir = std::path::PathBuf::from(format!("/tmp/c4/ephemeral-{}", ts));
+        let tmp_dir = crate::ephemeral_base_dir().join(format!("ephemeral-{}", ts));
         if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
             return Some(format!("Failed to create ephemeral dir: {}", e));
         }
