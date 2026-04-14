@@ -109,7 +109,14 @@ fn decode_project_dir(name: &str) -> String {
         return name.to_string();
     }
 
-    // Try to find a valid path by recursively choosing / or . between segments
+    // Fast path: try all-slash reconstruction first (the common case — one stat call)
+    let all_slash = format!("/{}", segments.join("/"));
+    if Path::new(&all_slash).exists() {
+        return all_slash.clone();
+    }
+
+    // Slow path: probe combinations with dots (e.g. user.name in path).
+    // Only needed when the all-slash path doesn't exist on the filesystem.
     fn try_decode(segments: &[&str], idx: usize, current: &str) -> Option<String> {
         if idx == segments.len() {
             return if Path::new(current).exists() {
@@ -128,18 +135,15 @@ fn decode_project_dir(name: &str) -> String {
         }
         // Try . separator (e.g. gal.berger)
         let dot = format!("{}.{}", current, segments[idx]);
-        if let Some(result) = try_decode(segments, idx + 1, &dot) {
-            return Some(result);
-        }
-        None
+        try_decode(segments, idx + 1, &dot)
     }
 
     if let Some(path) = try_decode(&segments, 0, "") {
         return path;
     }
 
-    // Fallback: last segment as project name
-    segments.last().unwrap_or(&name.as_ref()).to_string()
+    // Fallback: return the all-slash version (better than just the last segment)
+    all_slash
 }
 
 pub fn discover_sessions() -> Result<Vec<Session>> {
@@ -490,5 +494,21 @@ mod tests {
         let ephemeral = false;
         let should_skip = !alive && (message_count == 0 && cost == 0.0 || ephemeral);
         assert!(!should_skip, "alive sessions must never be skipped");
+    }
+
+    #[test]
+    fn decode_project_dir_fast_path_for_nonexistent_returns_all_slash() {
+        // Non-existent path: must get the all-slash decode, not just the last segment.
+        // This verifies the fallback change too.
+        let encoded = "-nonexistent-totally-fake-path-abc123";
+        let result = decode_project_dir(encoded);
+        assert_eq!(result, "/nonexistent/totally/fake/path/abc123");
+    }
+
+    #[test]
+    fn decode_project_dir_single_segment() {
+        let encoded = "-myproject";
+        let result = decode_project_dir(encoded);
+        assert!(result.ends_with("myproject"));
     }
 }
