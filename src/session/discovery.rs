@@ -343,7 +343,7 @@ pub fn discover_sessions() -> Result<Vec<Session>> {
         // Skip dead sessions with no real usage.
         // Also always skip dead ephemeral sessions regardless of cost — they disappear immediately
         // on exit by design; cleanup is handled in App::refresh().
-        if !alive && (message_count == 0 || cost == 0.0 || is_ephemeral_cwd(&info.cwd)) {
+        if !alive && (message_count == 0 && cost == 0.0 || is_ephemeral_cwd(&info.cwd)) {
             continue;
         }
 
@@ -459,5 +459,36 @@ mod tests {
     #[test]
     fn test_project_name_from_cwd_empty_falls_back() {
         assert_eq!(project_name_from_cwd(""), "");
+    }
+
+    #[test]
+    fn dead_session_with_messages_and_zero_cost_is_not_skipped() {
+        // Dead, has 5 messages, cost $0.00 (e.g. all cache reads). Old OR logic skipped this.
+        let message_count: usize = 5;
+        let cost: f64 = 0.0;
+        let alive = false;
+        let ephemeral = false;
+        let should_skip = !alive && (message_count == 0 && cost == 0.0 || ephemeral);
+        assert!(!should_skip, "dead session with messages must not be skipped even if cost is zero");
+    }
+
+    #[test]
+    fn dead_session_no_messages_no_cost_is_skipped() {
+        let message_count: usize = 0;
+        let cost: f64 = 0.0;
+        let alive = false;
+        let ephemeral = false;
+        let should_skip = !alive && (message_count == 0 && cost == 0.0 || ephemeral);
+        assert!(should_skip, "dead session with no messages and no cost should be skipped");
+    }
+
+    #[test]
+    fn alive_session_is_never_skipped_by_this_filter() {
+        let message_count: usize = 0;
+        let cost: f64 = 0.0;
+        let alive = true;
+        let ephemeral = false;
+        let should_skip = !alive && (message_count == 0 && cost == 0.0 || ephemeral);
+        assert!(!should_skip, "alive sessions must never be skipped");
     }
 }
