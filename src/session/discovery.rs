@@ -427,4 +427,34 @@ mod tests {
         assert!(is_ephemeral_cwd("/private/tmp/c4/ephemeral-1744123456"));
         assert!(is_ephemeral_cwd("/private/tmp/c4/ephemeral-0"));
     }
+
+    #[test]
+    fn test_cwd_to_project_dir_replaces_slashes() {
+        assert_eq!(cwd_to_project_dir("/home/user/projects/c4"), "-home-user-projects-c4");
+    }
+
+    #[test]
+    fn test_cwd_to_project_dir_replaces_dots() {
+        assert_eq!(cwd_to_project_dir("/home/user.name/proj"), "-home-user-name-proj");
+    }
+
+    #[test]
+    fn test_cwd_to_project_dir_empty() {
+        assert_eq!(cwd_to_project_dir(""), "");
+    }
+
+    #[test]
+    fn test_project_name_from_cwd_last_segment() {
+        assert_eq!(project_name_from_cwd("/home/user/myproject"), "myproject");
+    }
+
+    #[test]
+    fn test_project_name_from_cwd_single_segment() {
+        assert_eq!(project_name_from_cwd("myproject"), "myproject");
+    }
+
+    #[test]
+    fn test_project_name_from_cwd_empty_falls_back() {
+        assert_eq!(project_name_from_cwd(""), "");
+    }
 }

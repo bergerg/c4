@@ -137,3 +137,119 @@ impl Config {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_hotkey() {
+        assert_eq!(Config::default().hotkey, "cmd+option+ctrl+=");
+    }
+
+    #[test]
+    fn default_refresh_secs_is_3() {
+        assert_eq!(Config::default().refresh_interval_secs, 3);
+    }
+
+    #[test]
+    fn default_view_mode_is_compact() {
+        assert_eq!(Config::default().view_mode, "compact");
+    }
+
+    #[test]
+    fn fields_returns_five_entries() {
+        let cfg = Config::default();
+        assert_eq!(cfg.fields().len(), 5);
+    }
+
+    #[test]
+    fn fields_contains_expected_keys() {
+        let cfg = Config::default();
+        let keys: Vec<&str> = cfg.fields().iter().map(|(k, _, _)| *k).collect();
+        assert!(keys.contains(&"hotkey"));
+        assert!(keys.contains(&"refresh_interval_secs"));
+        assert!(keys.contains(&"projects_dir"));
+        assert!(keys.contains(&"view_mode"));
+        assert!(keys.contains(&"repo_url"));
+    }
+
+    #[test]
+    fn set_field_view_mode_compact_valid() {
+        let mut cfg = Config::default();
+        cfg.view_mode = "detailed".to_string();
+        assert!(cfg.set_field("view_mode", "compact").is_ok());
+        assert_eq!(cfg.view_mode, "compact");
+    }
+
+    #[test]
+    fn set_field_view_mode_detailed_valid() {
+        let mut cfg = Config::default();
+        assert!(cfg.set_field("view_mode", "detailed").is_ok());
+        assert_eq!(cfg.view_mode, "detailed");
+    }
+
+    #[test]
+    fn set_field_view_mode_invalid_returns_err() {
+        let mut cfg = Config::default();
+        assert!(cfg.set_field("view_mode", "fancy").is_err());
+    }
+
+    #[test]
+    fn set_field_refresh_secs_valid() {
+        let mut cfg = Config::default();
+        assert!(cfg.set_field("refresh_interval_secs", "10").is_ok());
+        assert_eq!(cfg.refresh_interval_secs, 10);
+    }
+
+    #[test]
+    fn set_field_refresh_secs_zero_returns_err() {
+        let mut cfg = Config::default();
+        assert!(cfg.set_field("refresh_interval_secs", "0").is_err());
+    }
+
+    #[test]
+    fn set_field_refresh_secs_non_numeric_returns_err() {
+        let mut cfg = Config::default();
+        assert!(cfg.set_field("refresh_interval_secs", "abc").is_err());
+    }
+
+    #[test]
+    fn set_field_repo_url_accepts_any_string() {
+        let mut cfg = Config::default();
+        assert!(cfg.set_field("repo_url", "https://example.com/repo.git").is_ok());
+        assert_eq!(cfg.repo_url, "https://example.com/repo.git");
+    }
+
+    #[test]
+    fn set_field_projects_dir_existing_dir_ok() {
+        let mut cfg = Config::default();
+        assert!(cfg.set_field("projects_dir", "/tmp").is_ok());
+        assert_eq!(cfg.projects_dir, "/tmp");
+    }
+
+    #[test]
+    fn set_field_projects_dir_nonexistent_returns_err() {
+        let mut cfg = Config::default();
+        assert!(cfg.set_field("projects_dir", "/nonexistent/path/xyz").is_err());
+    }
+
+    #[test]
+    fn set_field_hotkey_valid_updates() {
+        let mut cfg = Config::default();
+        assert!(cfg.set_field("hotkey", "ctrl+shift+a").is_ok());
+        assert_eq!(cfg.hotkey, "ctrl+shift+a");
+    }
+
+    #[test]
+    fn set_field_hotkey_invalid_returns_err() {
+        let mut cfg = Config::default();
+        assert!(cfg.set_field("hotkey", "just_a_letter").is_err());
+    }
+
+    #[test]
+    fn set_field_unknown_key_returns_err() {
+        let mut cfg = Config::default();
+        assert!(cfg.set_field("nonexistent_field", "value").is_err());
+    }
+}

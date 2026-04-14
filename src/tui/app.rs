@@ -1163,3 +1163,286 @@ end tell"#,
         Err("Session not found in iTerm2".into())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::{ContextUsage, SessionStatus, TokenUsage};
+    use chrono::Utc;
+
+    fn make_session(id: &str, project: &str, status: SessionStatus) -> Session {
+        Session {
+            pid: 1,
+            session_id: id.to_string(),
+            cwd: std::path::PathBuf::from("/tmp"),
+            started_at: Utc::now(),
+            git_branch: None,
+            summary: None,
+            project_name: project.to_string(),
+            status,
+            message_count: 1,
+            last_message_at: None,
+            last_message_preview: None,
+            model: None,
+            cost: TokenUsage::default(),
+            context_usage: ContextUsage::default(),
+            jsonl_path: None,
+            active_agents: 0,
+            active_bg_jobs: 0,
+            in_iterm: false,
+            is_ephemeral: false,
+        }
+    }
+
+    fn make_app(session_count: usize) -> App {
+        let logs = LogBuffer::new();
+        let config = crate::config::Config::default();
+        let mut app = App::new(logs, config);
+        app.sessions.clear();
+        app.filtered_indices.clear();
+        for i in 0..session_count {
+            app.sessions.push(make_session(
+                &format!("s{}", i),
+                &format!("proj{}", i),
+                SessionStatus::WaitingForInput,
+            ));
+        }
+        app
+    }
+
+    // --- fuzzy_match ---
+
+    #[test]
+    fn fuzzy_match_exact() {
+        assert!(fuzzy_match("hello", "hello"));
+    }
+
+    #[test]
+    fn fuzzy_match_subsequence() {
+        assert!(fuzzy_match("hello world", "hlw"));
+    }
+
+    #[test]
+    fn fuzzy_match_empty_needle() {
+        assert!(fuzzy_match("anything", ""));
+    }
+
+    #[test]
+    fn fuzzy_match_no_match() {
+        assert!(!fuzzy_match("hello", "xyz"));
+    }
+
+    #[test]
+    fn fuzzy_match_needle_longer_than_haystack() {
+        assert!(!fuzzy_match("hi", "hello"));
+    }
+
+    // --- SortColumn ---
+
+    #[test]
+    fn sort_column_labels_are_nonempty() {
+        for col in SortColumn::ALL {
+            assert!(!col.label().is_empty());
+        }
+    }
+
+    #[test]
+    fn sort_column_next_wraps_around() {
+        assert!(SortColumn::Started.next() == SortColumn::Status);
+    }
+
+    #[test]
+    fn sort_column_prev_wraps_around() {
+        assert!(SortColumn::Status.prev() == SortColumn::Started);
+    }
+
+    #[test]
+    fn sort_column_next_advances() {
+        assert!(SortColumn::Status.next() == SortColumn::Project);
+    }
+
+    #[test]
+    fn sort_column_prev_retreats() {
+        assert!(SortColumn::Project.prev() == SortColumn::Status);
+    }
+
+    // --- LogBuffer ---
+
+    #[test]
+    fn log_buffer_starts_empty() {
+        let buf = LogBuffer::new();
+        assert_eq!(buf.entries().len(), 0);
+    }
+
+    #[test]
+    fn log_buffer_records_entries() {
+        let buf = LogBuffer::new();
+        buf.info("hello");
+        buf.warn("world");
+        assert_eq!(buf.entries().len(), 2);
+    }
+
+    #[test]
+    fn log_buffer_caps_at_max_entries() {
+        let buf = LogBuffer::new();
+        for i in 0..MAX_LOG_ENTRIES + 10 {
+            buf.info(format!("msg {}", i));
+        }
+        assert_eq!(buf.entries().len(), MAX_LOG_ENTRIES);
+    }
+
+    // --- App: visible_count ---
+
+    #[test]
+    fn visible_count_no_search_returns_all() {
+        let app = make_app(5);
+        assert_eq!(app.visible_count(), 5);
+    }
+
+    #[test]
+    fn visible_count_with_active_filter() {
+        let mut app = make_app(3);
+        app.search_query = "xyz_no_match".to_string();
+        app.filtered_indices = vec![];
+        assert_eq!(app.visible_count(), 0);
+    }
+
+    // --- App: total_pages ---
+
+    #[test]
+    fn total_pages_zero_sessions() {
+        let app = make_app(0);
+        assert_eq!(app.total_pages(), 1);
+    }
+
+    #[test]
+    fn total_pages_exact_fit() {
+        let mut app = make_app(20);
+        app.page_size = 20;
+        assert_eq!(app.total_pages(), 1);
+    }
+
+    #[test]
+    fn total_pages_overflow() {
+        let mut app = make_app(21);
+        app.page_size = 20;
+        assert_eq!(app.total_pages(), 2);
+    }
+
+    // --- App: page_range ---
+
+    #[test]
+    fn page_range_first_page() {
+        let mut app = make_app(25);
+        app.page_size = 10;
+        app.page = 0;
+        assert_eq!(app.page_range(), 0..10);
+    }
+
+    #[test]
+    fn page_range_last_partial_page() {
+        let mut app = make_app(25);
+        app.page_size = 10;
+        app.page = 2;
+        assert_eq!(app.page_range(), 20..25);
+    }
+
+    // --- App: set_status / clear_status ---
+
+    #[test]
+    fn set_status_stores_message() {
+        let mut app = make_app(0);
+        app.set_status("test message");
+        assert_eq!(app.status_message.as_deref(), Some("test message"));
+    }
+
+    #[test]
+    fn clear_status_removes_message() {
+        let mut app = make_app(0);
+        app.set_status("test");
+        app.clear_status();
+        assert!(app.status_message.is_none());
+    }
+
+    // --- App: search ---
+
+    #[test]
+    fn start_search_sets_searching_flag() {
+        let mut app = make_app(0);
+        app.start_search();
+        assert!(app.searching);
+    }
+
+    #[test]
+    fn stop_search_clears_flag_keeps_filter() {
+        let mut app = make_app(3);
+        app.search_query = "proj".to_string();
+        app.filtered_indices = vec![0];
+        app.start_search();
+        app.stop_search();
+        assert!(!app.searching);
+        assert_eq!(app.filtered_indices.len(), 1);
+    }
+
+    #[test]
+    fn clear_search_resets_all_state() {
+        let mut app = make_app(3);
+        app.search_query = "proj".to_string();
+        app.filtered_indices = vec![0, 1];
+        app.searching = true;
+        app.clear_search();
+        assert!(!app.searching);
+        assert!(app.search_query.is_empty());
+        assert!(app.filtered_indices.is_empty());
+    }
+
+    // --- App: toggle_sort_dir ---
+
+    #[test]
+    fn toggle_sort_dir_asc_to_desc() {
+        let mut app = make_app(0);
+        app.sort_dir = SortDir::Asc;
+        app.toggle_sort_dir();
+        assert!(app.sort_dir == SortDir::Desc);
+    }
+
+    #[test]
+    fn toggle_sort_dir_desc_to_asc() {
+        let mut app = make_app(0);
+        app.sort_dir = SortDir::Desc;
+        app.toggle_sort_dir();
+        assert!(app.sort_dir == SortDir::Asc);
+    }
+
+    // --- App: update_search_filter ---
+
+    #[test]
+    fn update_search_filter_matches_project_name() {
+        let mut app = make_app(3);
+        app.search_query = "proj1".to_string();
+        app.update_search_filter();
+        assert_eq!(app.filtered_indices.len(), 1);
+        assert_eq!(app.sessions[app.filtered_indices[0]].project_name, "proj1");
+    }
+
+    #[test]
+    fn update_search_filter_empty_query_clears_indices() {
+        let mut app = make_app(3);
+        app.filtered_indices = vec![0];
+        app.search_query = String::new();
+        app.update_search_filter();
+        assert!(app.filtered_indices.is_empty());
+    }
+
+    // --- App: toggle_log_viewer ---
+
+    #[test]
+    fn toggle_log_viewer_opens_and_closes() {
+        let mut app = make_app(0);
+        assert!(app.log_viewer.is_none());
+        app.toggle_log_viewer();
+        assert!(app.log_viewer.is_some());
+        app.toggle_log_viewer();
+        assert!(app.log_viewer.is_none());
+    }
+}

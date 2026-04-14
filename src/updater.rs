@@ -109,3 +109,43 @@ fn is_newer(remote: &str, current: &str) -> bool {
     let c = parse(current);
     r > c
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_newer_patch_bump() {
+        assert!(is_newer("1.0.1", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_minor_bump() {
+        assert!(is_newer("1.1.0", "1.0.9"));
+    }
+
+    #[test]
+    fn is_newer_major_bump() {
+        assert!(is_newer("2.0.0", "1.9.9"));
+    }
+
+    #[test]
+    fn is_newer_same_version_is_false() {
+        assert!(!is_newer("1.0.0", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_older_remote_is_false() {
+        assert!(!is_newer("0.9.9", "1.0.0"));
+    }
+
+    #[test]
+    fn is_newer_older_minor_is_false() {
+        assert!(!is_newer("1.0.0", "1.1.0"));
+    }
+
+    #[test]
+    fn current_version_is_not_empty() {
+        assert!(!current_version().is_empty());
+    }
+}

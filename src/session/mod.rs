@@ -95,3 +95,96 @@ impl ContextUsage {
         (self.current_tokens as f32 / self.max_tokens as f32) * 100.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_status_label_waiting() {
+        assert_eq!(SessionStatus::WaitingForInput.label(), "WAITING");
+    }
+
+    #[test]
+    fn session_status_label_thinking() {
+        assert_eq!(SessionStatus::Thinking.label(), "THINKING");
+    }
+
+    #[test]
+    fn session_status_label_dead() {
+        assert_eq!(SessionStatus::Dead.label(), "DEAD");
+    }
+
+    #[test]
+    fn token_usage_cost_zero_tokens() {
+        let usage = TokenUsage::default();
+        assert_eq!(usage.estimated_cost_usd(None), 0.0);
+    }
+
+    #[test]
+    fn token_usage_cost_sonnet_input_only() {
+        let usage = TokenUsage { input_tokens: 1_000_000, ..Default::default() };
+        let cost = usage.estimated_cost_usd(None);
+        assert!((cost - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn token_usage_cost_opus_input_only() {
+        let usage = TokenUsage { input_tokens: 1_000_000, ..Default::default() };
+        let cost = usage.estimated_cost_usd(Some("claude-opus-4"));
+        assert!((cost - 15.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn token_usage_cost_haiku_input_only() {
+        let usage = TokenUsage { input_tokens: 1_000_000, ..Default::default() };
+        let cost = usage.estimated_cost_usd(Some("claude-haiku-3-5"));
+        assert!((cost - 0.80).abs() < 1e-9);
+    }
+
+    #[test]
+    fn token_usage_cost_sonnet_input_and_output() {
+        let usage = TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            ..Default::default()
+        };
+        let cost = usage.estimated_cost_usd(None); // 3.0 + 15.0
+        assert!((cost - 18.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn token_usage_cost_cache_tokens() {
+        let usage = TokenUsage {
+            cache_read_tokens: 1_000_000,
+            cache_creation_tokens: 1_000_000,
+            ..Default::default()
+        };
+        let cost = usage.estimated_cost_usd(None); // 0.30 + 3.75
+        assert!((cost - 4.05).abs() < 1e-9);
+    }
+
+    #[test]
+    fn context_usage_percentage_zero_current() {
+        let ctx = ContextUsage::default();
+        assert_eq!(ctx.percentage(), 0.0);
+    }
+
+    #[test]
+    fn context_usage_percentage_half() {
+        let ctx = ContextUsage { current_tokens: 100_000, max_tokens: 200_000 };
+        assert!((ctx.percentage() - 50.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn context_usage_percentage_full() {
+        let ctx = ContextUsage { current_tokens: 200_000, max_tokens: 200_000 };
+        assert!((ctx.percentage() - 100.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn context_usage_percentage_zero_max_returns_zero() {
+        let ctx = ContextUsage { current_tokens: 100, max_tokens: 0 };
+        assert_eq!(ctx.percentage(), 0.0);
+    }
+}

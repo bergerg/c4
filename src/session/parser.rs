@@ -261,3 +261,185 @@ fn truncate(s: &str, max: usize) -> String {
         format!("{}...", &first_line[..max - 3])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn write_tmp_jsonl(suffix: &str, content: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!("c4_test_{}.jsonl", suffix));
+        fs::write(&path, content).unwrap();
+        path
+    }
+
+    // --- truncate ---
+
+    #[test]
+    fn truncate_short_string_unchanged() {
+        assert_eq!(truncate("hello", 80), "hello");
+    }
+
+    #[test]
+    fn truncate_long_string_gets_ellipsis() {
+        let s = "a".repeat(100);
+        let result = truncate(&s, 80);
+        assert_eq!(result.len(), 80);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn truncate_uses_first_line_only() {
+        assert_eq!(truncate("first\nsecond", 80), "first");
+    }
+
+    #[test]
+    fn truncate_trims_surrounding_whitespace() {
+        assert_eq!(truncate("  hello  ", 80), "hello");
+    }
+
+    // --- extract_preview ---
+
+    #[test]
+    fn extract_preview_string_value() {
+        let val = serde_json::json!("simple text");
+        assert_eq!(extract_preview(&val), Some("simple text".to_string()));
+    }
+
+    #[test]
+    fn extract_preview_array_with_text_block() {
+        let val = serde_json::json!([{"type": "text", "text": "block text"}]);
+        assert_eq!(extract_preview(&val), Some("block text".to_string()));
+    }
+
+    #[test]
+    fn extract_preview_array_with_tool_use() {
+        let val = serde_json::json!([{"type": "tool_use", "name": "Bash"}]);
+        assert_eq!(extract_preview(&val), Some("[tool: Bash]".to_string()));
+    }
+
+    #[test]
+    fn extract_preview_null_returns_none() {
+        let val = serde_json::json!(null);
+        assert_eq!(extract_preview(&val), None);
+    }
+
+    // --- parse_session_jsonl ---
+
+    #[test]
+    fn parse_empty_file_returns_zero_messages() {
+        let path = write_tmp_jsonl("empty", "");
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert_eq!(parsed.message_count, 0);
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_non_message_entries_are_ignored() {
+        let content = r#"{"type":"summary","message":null}"#;
+        let path = write_tmp_jsonl("summary_only", content);
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert_eq!(parsed.message_count, 0);
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_counts_user_and_assistant_messages() {
+        let content = concat!(
+            "{\"type\":\"user\",\"timestamp\":\"2024-01-01T00:00:00Z\",",
+            "\"message\":{\"role\":\"user\",\"content\":\"Hello\"}}\n",
+            "{\"type\":\"assistant\",\"timestamp\":\"2024-01-01T00:00:01Z\",",
+            "\"message\":{\"role\":\"assistant\",\"content\":\"Hi\",",
+            "\"model\":\"claude-sonnet-4-5\",",
+            "\"usage\":{\"input_tokens\":10,\"output_tokens\":5,",
+            "\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0}}}\n"
+        );
+        let path = write_tmp_jsonl("two_messages", content);
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert_eq!(parsed.message_count, 2);
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_extracts_model_from_assistant_message() {
+        let content = concat!(
+            "{\"type\":\"assistant\",\"timestamp\":\"2024-01-01T00:00:00Z\",",
+            "\"message\":{\"role\":\"assistant\",\"content\":\"Hi\",",
+            "\"model\":\"claude-sonnet-4-5\",",
+            "\"usage\":{\"input_tokens\":10,\"output_tokens\":5,",
+            "\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0}}}\n"
+        );
+        let path = write_tmp_jsonl("model_extraction", content);
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert_eq!(parsed.model.as_deref(), Some("claude-sonnet-4-5"));
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_extracts_git_branch() {
+        let content = concat!(
+            "{\"type\":\"user\",\"timestamp\":\"2024-01-01T00:00:00Z\",",
+            "\"gitBranch\":\"main\",",
+            "\"message\":{\"role\":\"user\",\"content\":\"Hello\"}}\n"
+        );
+        let path = write_tmp_jsonl("git_branch", content);
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert_eq!(parsed.git_branch.as_deref(), Some("main"));
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_accumulates_token_usage() {
+        let content = concat!(
+            "{\"type\":\"assistant\",\"timestamp\":\"2024-01-01T00:00:00Z\",",
+            "\"message\":{\"role\":\"assistant\",\"content\":\"first\",",
+            "\"usage\":{\"input_tokens\":100,\"output_tokens\":50,",
+            "\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0}}}\n",
+            "{\"type\":\"assistant\",\"timestamp\":\"2024-01-01T00:00:01Z\",",
+            "\"message\":{\"role\":\"assistant\",\"content\":\"second\",",
+            "\"usage\":{\"input_tokens\":200,\"output_tokens\":80,",
+            "\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0}}}\n"
+        );
+        let path = write_tmp_jsonl("usage_accumulate", content);
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert_eq!(parsed.total_usage.input_tokens, 300);
+        assert_eq!(parsed.total_usage.output_tokens, 130);
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_captures_first_user_message() {
+        let content = concat!(
+            "{\"type\":\"user\",\"timestamp\":\"2024-01-01T00:00:00Z\",",
+            "\"message\":{\"role\":\"user\",\"content\":\"First task\"}}\n",
+            "{\"type\":\"user\",\"timestamp\":\"2024-01-01T00:00:02Z\",",
+            "\"message\":{\"role\":\"user\",\"content\":\"Second task\"}}\n"
+        );
+        let path = write_tmp_jsonl("first_user_msg", content);
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert_eq!(parsed.first_user_message.as_deref(), Some("First task"));
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_sets_last_message_role() {
+        let content = concat!(
+            "{\"type\":\"user\",\"timestamp\":\"2024-01-01T00:00:00Z\",",
+            "\"message\":{\"role\":\"user\",\"content\":\"Hello\"}}\n",
+            "{\"type\":\"assistant\",\"timestamp\":\"2024-01-01T00:00:01Z\",",
+            "\"message\":{\"role\":\"assistant\",\"content\":\"Hi\",",
+            "\"usage\":{\"input_tokens\":10,\"output_tokens\":5,",
+            "\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":0}}}\n"
+        );
+        let path = write_tmp_jsonl("last_role", content);
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert_eq!(parsed.last_message_role.as_deref(), Some("assistant"));
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_nonexistent_file_returns_error() {
+        let path = std::path::Path::new("/nonexistent/path/session.jsonl");
+        assert!(parse_session_jsonl(path).is_err());
+    }
+}

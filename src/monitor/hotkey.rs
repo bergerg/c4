@@ -117,3 +117,75 @@ fn str_to_key(s: &str) -> Result<Key, String> {
         _ => Err(format!("Unknown key: '{}'", s)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_hotkey_ctrl_shift_a() {
+        let hk = parse_hotkey("ctrl+shift+a").unwrap();
+        assert!(hk.modifiers.contains(&Key::ControlLeft));
+        assert!(hk.modifiers.contains(&Key::ShiftLeft));
+        assert_eq!(hk.key, Key::KeyA);
+    }
+
+    #[test]
+    fn parse_hotkey_cmd_option_ctrl_equal() {
+        let hk = parse_hotkey("cmd+option+ctrl+=").unwrap();
+        assert!(hk.modifiers.contains(&Key::MetaLeft));
+        assert!(hk.modifiers.contains(&Key::Alt));
+        assert!(hk.modifiers.contains(&Key::ControlLeft));
+        assert_eq!(hk.key, Key::Equal);
+    }
+
+    #[test]
+    fn parse_hotkey_space_key() {
+        let hk = parse_hotkey("ctrl+space").unwrap();
+        assert_eq!(hk.key, Key::Space);
+    }
+
+    #[test]
+    fn parse_hotkey_function_key() {
+        let hk = parse_hotkey("ctrl+f5").unwrap();
+        assert_eq!(hk.key, Key::F5);
+    }
+
+    #[test]
+    fn parse_hotkey_option_alias_for_alt() {
+        let hk = parse_hotkey("option+a").unwrap();
+        assert!(hk.modifiers.contains(&Key::Alt));
+    }
+
+    #[test]
+    fn parse_hotkey_command_alias_for_cmd() {
+        let hk = parse_hotkey("command+a").unwrap();
+        assert!(hk.modifiers.contains(&Key::MetaLeft));
+    }
+
+    #[test]
+    fn parse_hotkey_no_modifier_fails() {
+        assert!(parse_hotkey("a").is_err());
+    }
+
+    #[test]
+    fn parse_hotkey_only_modifiers_fails() {
+        assert!(parse_hotkey("ctrl+shift").is_err());
+    }
+
+    #[test]
+    fn parse_hotkey_multiple_non_modifier_keys_fails() {
+        assert!(parse_hotkey("ctrl+a+b").is_err());
+    }
+
+    #[test]
+    fn parse_hotkey_unknown_key_fails() {
+        assert!(parse_hotkey("ctrl+foobar123").is_err());
+    }
+
+    #[test]
+    fn parse_hotkey_digit_key() {
+        let hk = parse_hotkey("ctrl+5").unwrap();
+        assert_eq!(hk.key, Key::Num5);
+    }
+}

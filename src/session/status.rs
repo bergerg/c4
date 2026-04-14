@@ -29,3 +29,55 @@ pub fn detect_status(parsed: &ParsedSession, jsonl_path: &Option<PathBuf>) -> Se
         _ => SessionStatus::WaitingForInput,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::{ContextUsage, TokenUsage};
+    use crate::session::parser::ParsedSession;
+
+    fn make_parsed(last_role: Option<&str>) -> ParsedSession {
+        ParsedSession {
+            message_count: 1,
+            first_message_at: None,
+            last_message_at: None,
+            first_user_message: None,
+            last_message_preview: None,
+            last_message_role: last_role.map(|s| s.to_string()),
+            model: None,
+            git_branch: None,
+            total_usage: TokenUsage::default(),
+            context_usage: ContextUsage::default(),
+            active_agents: 0,
+            active_bg_jobs: 0,
+        }
+    }
+
+    #[test]
+    fn user_role_is_thinking() {
+        let parsed = make_parsed(Some("user"));
+        assert_eq!(detect_status(&parsed, &None), SessionStatus::Thinking);
+    }
+
+    #[test]
+    fn assistant_role_with_no_file_is_waiting() {
+        let parsed = make_parsed(Some("assistant"));
+        assert_eq!(detect_status(&parsed, &None), SessionStatus::WaitingForInput);
+    }
+
+    #[test]
+    fn no_role_is_waiting() {
+        let parsed = make_parsed(None);
+        assert_eq!(detect_status(&parsed, &None), SessionStatus::WaitingForInput);
+    }
+
+    #[test]
+    fn assistant_role_with_recently_modified_file_is_thinking() {
+        use std::fs;
+        let path = std::env::temp_dir().join("c4_status_test.jsonl");
+        fs::write(&path, "").unwrap();
+        let parsed = make_parsed(Some("assistant"));
+        assert_eq!(detect_status(&parsed, &Some(path.clone())), SessionStatus::Thinking);
+        fs::remove_file(path).ok();
+    }
+}
