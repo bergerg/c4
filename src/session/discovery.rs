@@ -103,7 +103,7 @@ pub(crate) fn is_ephemeral_cwd(cwd: &str) -> bool {
 /// Claude encodes paths by replacing / and . with -, so the encoding is lossy.
 /// We try all possible separator combinations recursively and return the first
 /// that resolves to an existing directory.
-fn decode_project_dir(name: &str) -> String {
+pub fn decode_project_dir(name: &str) -> String {
     let segments: Vec<&str> = name.split('-').filter(|s| !s.is_empty()).collect();
     if segments.is_empty() {
         return name.to_string();

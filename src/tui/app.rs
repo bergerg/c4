@@ -250,7 +250,7 @@ fn collect_project_dirs() -> Vec<PathBuf> {
             // Decode: leading dash + dashes are path separators, but also dots were dashes
             // The encoded form is the path with / and . replaced by -
             // We can reconstruct by checking if the path exists
-            let candidate = PathBuf::from(name.replace('-', "/"));
+            let candidate = PathBuf::from(crate::session::discovery::decode_project_dir(&name));
             // Try the literal decoded path first
             if candidate.is_dir() && seen.insert(candidate.clone()) {
                 dirs.push(candidate);
