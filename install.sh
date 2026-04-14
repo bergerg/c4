@@ -28,7 +28,7 @@ TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 
 echo "Downloading c4..."
-git clone --depth 1 https://github.com/YOUR_USER/c4.git "$TMPDIR/c4"
+git clone --depth 1 https://github.com/bergerg/c4.git "$TMPDIR/c4"
 
 echo "Building..."
 cd "$TMPDIR/c4"
