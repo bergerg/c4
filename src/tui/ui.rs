@@ -404,9 +404,10 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(Color::Yellow),
             ),
             Span::raw(format!(
-                " (in: {}  out: {}  cache_r: {}  cache_w: {})",
-                format_tokens(s.cost.input_tokens),
+                " (in: {}  out: {}  new: {}  cache_r: {}  cache_w: {})",
+                format_tokens(s.cost.input_tokens + s.cost.cache_read_tokens + s.cost.cache_creation_tokens),
                 format_tokens(s.cost.output_tokens),
+                format_tokens(s.cost.input_tokens),
                 format_tokens(s.cost.cache_read_tokens),
                 format_tokens(s.cost.cache_creation_tokens),
             )),
@@ -558,11 +559,9 @@ fn draw_detailed_view(f: &mut Frame, area: Rect, app: &App) {
             Span::raw(" Cost: "),
             Span::styled(format!("${:.2}", cost), Style::default().fg(Color::Yellow)),
             Span::raw(format!(
-                "  (in:{} out:{} cache_r:{} cache_w:{})",
-                format_tokens(s.cost.input_tokens),
+                "  (in:{} out:{})",
+                format_tokens(s.cost.input_tokens + s.cost.cache_read_tokens + s.cost.cache_creation_tokens),
                 format_tokens(s.cost.output_tokens),
-                format_tokens(s.cost.cache_read_tokens),
-                format_tokens(s.cost.cache_creation_tokens),
             )),
         ]);
         f.render_widget(Paragraph::new(cost_line), rows[1]);
