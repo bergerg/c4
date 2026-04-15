@@ -43,7 +43,7 @@ impl SessionStatus {
         match self {
             Self::WaitingForInput => "WAITING",
             Self::Thinking => "THINKING",
-            Self::Dead => "DEAD",
+            Self::Dead => "TERMINATED",
         }
     }
 }
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn session_status_label_dead() {
-        assert_eq!(SessionStatus::Dead.label(), "DEAD");
+        assert_eq!(SessionStatus::Dead.label(), "TERMINATED");
     }
 
     #[test]

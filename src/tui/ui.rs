@@ -76,7 +76,7 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
         Span::raw("  "),
         Span::styled(format!("{} active", alive), Style::default().fg(Color::Green)),
         Span::raw(" | "),
-        Span::styled(format!("{} dead", dead), Style::default().fg(Color::DarkGray)),
+        Span::styled(format!("{} terminated", dead), Style::default().fg(Color::DarkGray)),
     ];
 
     if let Some(hk) = &app.hotkey_display {
