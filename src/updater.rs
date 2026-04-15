@@ -9,6 +9,9 @@ pub fn current_version() -> &'static str {
 /// Check for updates and install if available.
 /// Returns a status message.
 const REPO_RAW_BASE: &str = "https://raw.githubusercontent.com/bergerg/c4/main/";
+/// GitHub API base — shorter cache TTL (60s) vs raw CDN (300s), ensuring
+/// version checks see a fresh push within one minute instead of five.
+const REPO_API_BASE: &str = "https://api.github.com/repos/bergerg/c4/";
 
 pub fn check_and_update() -> String {
     match do_update() {
@@ -17,12 +20,18 @@ pub fn check_and_update() -> String {
     }
 }
 
-/// Fetches the remote Cargo.toml and returns the version string if a newer version is available.
+/// Fetches the remote Cargo.toml via the GitHub API and returns the version
+/// string if a newer version is available.
 fn fetch_remote_version() -> Result<Option<String>, String> {
-    let cargo_url = format!("{}Cargo.toml", REPO_RAW_BASE);
+    let cargo_url = format!("{}contents/Cargo.toml", REPO_API_BASE);
 
     let output = Command::new("curl")
-        .args(["-sSf", "--max-time", "10", &cargo_url])
+        .args([
+            "-sSf", "--max-time", "10",
+            "-H", "Accept: application/vnd.github.raw",
+            "-H", "User-Agent: c4-updater",
+            &cargo_url,
+        ])
         .output()
         .map_err(|e| format!("curl failed: {}", e))?;
 
@@ -129,5 +138,10 @@ mod tests {
     #[test]
     fn repo_raw_base_points_to_install_sh() {
         assert!(format!("{}install.sh", REPO_RAW_BASE).contains("bergerg/c4"));
+    }
+
+    #[test]
+    fn repo_api_base_points_to_cargo_toml() {
+        assert!(format!("{}contents/Cargo.toml", super::REPO_API_BASE).contains("bergerg/c4"));
     }
 }
