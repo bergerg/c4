@@ -194,7 +194,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
                 ),
                 Cell::from(s.session_id[..8].to_string()),
                 Cell::from(s.status.label()).style(status_style),
-                Cell::from(if s.status == SessionStatus::Dead {
+                Cell::from(if s.status == SessionStatus::Dead || s.context_usage.current_tokens == 0 {
                     " -- ".to_string()
                 } else {
                     format!("{:.0}%", ctx_pct)
@@ -426,7 +426,7 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &App) {
                 Style::default().fg(if ctx_pct > 80.0 {
                     Color::Red
                 } else if ctx_pct > 50.0 {
-                    Color::Yellow
+                    Color::Rgb(200, 130, 0)
                 } else {
                     Color::Green
                 }),
