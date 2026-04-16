@@ -160,6 +160,8 @@ pub struct App {
     pub search_query: String,
     /// Indices into `sessions` that match the current search.
     pub filtered_indices: Vec<usize>,
+    /// When false (default), terminated sessions are hidden.
+    pub show_terminated: bool,
     /// Result channel for background update thread. None = not running,
     /// Some(None) = in progress, Some(Some(msg)) = finished.
     pub update_result: Arc<Mutex<Option<String>>>,
@@ -369,7 +371,7 @@ impl App {
         let mut sessions = discovery::discover_sessions().unwrap_or_default();
         tag_iterm_sessions(&mut sessions);
         logs.info(format!("Started. Found {} sessions.", sessions.len()));
-        Self {
+        let mut app = Self {
             sessions,
             selected: 0,
             should_quit: false,
@@ -390,8 +392,11 @@ impl App {
             searching: false,
             search_query: String::new(),
             filtered_indices: Vec::new(),
+            show_terminated: false,
             update_result: Arc::new(Mutex::new(None)),
-        }
+        };
+        app.recompute_visible();
+        app
     }
 
     pub fn set_status(&mut self, msg: impl Into<String>) {
@@ -501,20 +506,24 @@ impl App {
             }
         });
 
-        // Restore selection
+        self.recompute_visible();
+
+        // Restore selection to the visible position of the previously-selected session
         if let Some(id) = prev_id {
-            if let Some(idx) = self.sessions.iter().position(|s| s.session_id == id) {
-                self.selected = idx;
+            if let Some(vis_pos) = self.filtered_indices.iter().position(|&raw_idx| {
+                self.sessions.get(raw_idx).is_some_and(|s| s.session_id == id)
+            }) {
+                self.selected = vis_pos;
+                return;
             }
+        }
+        // Session not found in visible list; clamp to valid range
+        if self.selected >= self.filtered_indices.len() {
+            self.selected = self.filtered_indices.len().saturating_sub(1);
         }
     }
 
     pub fn refresh(&mut self) {
-        let prev_selected_id = self
-            .sessions
-            .get(self.selected)
-            .map(|s| s.session_id.clone());
-
         let mut fresh = discovery::discover_sessions().unwrap_or_default();
         tag_iterm_sessions(&mut fresh);
 
@@ -547,37 +556,18 @@ impl App {
 
         self.logs.info(format!("Refreshed. {} sessions.", self.sessions.len()));
 
-        // Re-apply current sort (preserves user's chosen order)
+        // Re-apply current sort — also calls recompute_visible and restores selection
         self.apply_sort();
-
-        // Restore selection
-        if let Some(id) = prev_selected_id {
-            if let Some(idx) = self.sessions.iter().position(|s| s.session_id == id) {
-                self.selected = idx;
-                return;
-            }
-        }
-        if self.selected >= self.sessions.len() && !self.sessions.is_empty() {
-            self.selected = self.sessions.len() - 1;
-        }
     }
 
     /// Number of visible items (filtered or all).
     pub fn visible_count(&self) -> usize {
-        if self.search_query.is_empty() {
-            self.sessions.len()
-        } else {
-            self.filtered_indices.len()
-        }
+        self.filtered_indices.len()
     }
 
     /// Get the session index in `self.sessions` for a given position in the visible list.
     pub fn visible_session_index(&self, visible_pos: usize) -> Option<usize> {
-        if self.search_query.is_empty() {
-            if visible_pos < self.sessions.len() { Some(visible_pos) } else { None }
-        } else {
-            self.filtered_indices.get(visible_pos).copied()
-        }
+        self.filtered_indices.get(visible_pos).copied()
     }
 
     pub fn total_pages(&self) -> usize {
@@ -652,26 +642,30 @@ impl App {
         self.sessions.get(idx)
     }
 
-    pub fn update_search_filter(&mut self) {
-        if self.search_query.is_empty() {
-            self.filtered_indices.clear();
-        } else {
-            let q = self.search_query.to_lowercase();
-            self.filtered_indices = self
-                .sessions
-                .iter()
-                .enumerate()
-                .filter(|(_, s)| {
-                    fuzzy_match(&s.project_name.to_lowercase(), &q)
+    pub fn recompute_visible(&mut self) {
+        let q = self.search_query.to_lowercase();
+        self.filtered_indices = self
+            .sessions
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| {
+                if !self.show_terminated && s.status == SessionStatus::Dead {
+                    return false;
+                }
+                if !q.is_empty() {
+                    return fuzzy_match(&s.project_name.to_lowercase(), &q)
                         || s.summary
                             .as_deref()
-                            .is_some_and(|t| fuzzy_match(&t.to_lowercase(), &q))
-                })
-                .map(|(i, _)| i)
-                .collect();
+                            .is_some_and(|t| fuzzy_match(&t.to_lowercase(), &q));
+                }
+                true
+            })
+            .map(|(i, _)| i)
+            .collect();
+        // Clamp selected to valid visible range
+        if self.selected >= self.filtered_indices.len() {
+            self.selected = self.filtered_indices.len().saturating_sub(1);
         }
-        self.page = 0;
-        self.selected = 0;
     }
 
     pub fn start_search(&mut self) {
@@ -686,8 +680,25 @@ impl App {
     pub fn clear_search(&mut self) {
         self.searching = false;
         self.search_query.clear();
-        self.filtered_indices.clear();
         self.page = 0;
+        self.selected = 0;
+        self.recompute_visible();
+    }
+
+    pub fn toggle_show_terminated(&mut self) {
+        let prev_id = self.selected_session().map(|s| s.session_id.clone());
+        self.show_terminated = !self.show_terminated;
+        self.page = 0;
+        self.recompute_visible();
+        // Restore selection if the previously-selected session is still visible
+        if let Some(id) = prev_id {
+            if let Some(vis_pos) = self.filtered_indices.iter().position(|&raw_idx| {
+                self.sessions.get(raw_idx).is_some_and(|s| s.session_id == id)
+            }) {
+                self.selected = vis_pos;
+                return;
+            }
+        }
         self.selected = 0;
     }
 
@@ -895,7 +906,7 @@ impl App {
         if let Some(real_idx) = self.visible_session_index(self.selected) {
             if session.message_count == 0 {
                 self.sessions.remove(real_idx);
-                self.update_search_filter();
+                self.recompute_visible();
                 if self.selected >= self.visible_count() && self.visible_count() > 0 {
                     self.selected = self.visible_count() - 1;
                 }
@@ -903,6 +914,10 @@ impl App {
                 if let Some(s) = self.sessions.get_mut(real_idx) {
                     s.status = SessionStatus::Dead;
                     s.in_iterm = false;
+                }
+                self.recompute_visible();
+                if self.selected >= self.visible_count() && self.visible_count() > 0 {
+                    self.selected = self.visible_count() - 1;
                 }
             }
         }
@@ -1228,7 +1243,6 @@ mod tests {
         let config = crate::config::Config::default();
         let mut app = App::new(logs, config);
         app.sessions.clear();
-        app.filtered_indices.clear();
         for i in 0..session_count {
             app.sessions.push(make_session(
                 &format!("s{}", i),
@@ -1236,6 +1250,7 @@ mod tests {
                 SessionStatus::WaitingForInput,
             ));
         }
+        app.recompute_visible();
         app
     }
 
@@ -1349,7 +1364,7 @@ mod tests {
     fn visible_count_with_active_filter() {
         let mut app = make_app(3);
         app.search_query = "xyz_no_match".to_string();
-        app.filtered_indices = vec![];
+        app.recompute_visible();
         assert_eq!(app.visible_count(), 0);
     }
 
@@ -1422,8 +1437,8 @@ mod tests {
     #[test]
     fn stop_search_clears_flag_keeps_filter() {
         let mut app = make_app(3);
-        app.search_query = "proj".to_string();
-        app.filtered_indices = vec![0];
+        app.search_query = "proj0".to_string();
+        app.recompute_visible();
         app.start_search();
         app.stop_search();
         assert!(!app.searching);
@@ -1433,13 +1448,14 @@ mod tests {
     #[test]
     fn clear_search_resets_all_state() {
         let mut app = make_app(3);
-        app.search_query = "proj".to_string();
-        app.filtered_indices = vec![0, 1];
+        app.search_query = "proj0".to_string();
+        app.recompute_visible();
         app.searching = true;
         app.clear_search();
         assert!(!app.searching);
         assert!(app.search_query.is_empty());
-        assert!(app.filtered_indices.is_empty());
+        // filtered_indices now contains all 3 non-terminated sessions
+        assert_eq!(app.filtered_indices.len(), 3);
     }
 
     // --- App: toggle_sort_dir ---
@@ -1460,24 +1476,134 @@ mod tests {
         assert!(app.sort_dir == SortDir::Asc);
     }
 
-    // --- App: update_search_filter ---
+    // --- App: recompute_visible ---
 
     #[test]
-    fn update_search_filter_matches_project_name() {
+    fn recompute_visible_matches_project_name() {
         let mut app = make_app(3);
         app.search_query = "proj1".to_string();
-        app.update_search_filter();
+        app.recompute_visible();
         assert_eq!(app.filtered_indices.len(), 1);
         assert_eq!(app.sessions[app.filtered_indices[0]].project_name, "proj1");
     }
 
     #[test]
-    fn update_search_filter_empty_query_clears_indices() {
+    fn recompute_visible_empty_query_shows_all_non_terminated() {
         let mut app = make_app(3);
         app.filtered_indices = vec![0];
         app.search_query = String::new();
-        app.update_search_filter();
-        assert!(app.filtered_indices.is_empty());
+        app.recompute_visible();
+        assert_eq!(app.filtered_indices.len(), 3); // all are WaitingForInput
+    }
+
+    #[test]
+    fn recompute_visible_hides_terminated_by_default() {
+        let logs = LogBuffer::new();
+        let config = crate::config::Config::default();
+        let mut app = App::new(logs, config);
+        app.sessions.clear();
+        app.sessions.push(make_session("s0", "proj0", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s1", "proj1", SessionStatus::Thinking));
+        app.sessions.push(make_session("s2", "proj2", SessionStatus::Dead));
+        app.recompute_visible();
+        assert_eq!(app.visible_count(), 2);
+        assert!(app.filtered_indices.iter().all(|&i| app.sessions[i].status != SessionStatus::Dead));
+    }
+
+    #[test]
+    fn recompute_visible_shows_terminated_when_flag_set() {
+        let logs = LogBuffer::new();
+        let config = crate::config::Config::default();
+        let mut app = App::new(logs, config);
+        app.sessions.clear();
+        app.sessions.push(make_session("s0", "proj0", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s1", "proj1", SessionStatus::Dead));
+        app.show_terminated = true;
+        app.recompute_visible();
+        assert_eq!(app.visible_count(), 2);
+    }
+
+    #[test]
+    fn recompute_visible_combines_search_and_terminated_filter() {
+        let logs = LogBuffer::new();
+        let config = crate::config::Config::default();
+        let mut app = App::new(logs, config);
+        app.sessions.clear();
+        app.sessions.push(make_session("s0", "alpha", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s1", "alpha", SessionStatus::Dead));
+        app.sessions.push(make_session("s2", "beta", SessionStatus::WaitingForInput));
+        app.search_query = "alpha".to_string();
+        // show_terminated defaults to false
+        app.recompute_visible();
+        // only s0 matches (alpha + not terminated)
+        assert_eq!(app.visible_count(), 1);
+        assert_eq!(app.sessions[app.filtered_indices[0]].session_id, "s0");
+    }
+
+    // --- App: toggle_show_terminated ---
+
+    #[test]
+    fn toggle_show_terminated_reveals_dead_sessions() {
+        let logs = LogBuffer::new();
+        let config = crate::config::Config::default();
+        let mut app = App::new(logs, config);
+        app.sessions.clear();
+        app.sessions.push(make_session("s0", "proj0", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s1", "proj1", SessionStatus::Dead));
+        app.recompute_visible();
+        assert_eq!(app.visible_count(), 1);
+        app.toggle_show_terminated();
+        assert_eq!(app.visible_count(), 2);
+        assert!(app.show_terminated);
+    }
+
+    #[test]
+    fn toggle_show_terminated_hides_dead_sessions_on_second_toggle() {
+        let logs = LogBuffer::new();
+        let config = crate::config::Config::default();
+        let mut app = App::new(logs, config);
+        app.sessions.clear();
+        app.sessions.push(make_session("s0", "proj0", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s1", "proj1", SessionStatus::Dead));
+        app.show_terminated = true;
+        app.recompute_visible();
+        app.toggle_show_terminated();
+        assert_eq!(app.visible_count(), 1);
+        assert!(!app.show_terminated);
+    }
+
+    #[test]
+    fn toggle_show_terminated_preserves_selection_by_id() {
+        let logs = LogBuffer::new();
+        let config = crate::config::Config::default();
+        let mut app = App::new(logs, config);
+        app.sessions.clear();
+        // s0: Dead — hidden when show_terminated=false, appears at pos 0 when true
+        app.sessions.push(make_session("s0", "proj0", SessionStatus::Dead));
+        app.sessions.push(make_session("s1", "proj1", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s2", "proj2", SessionStatus::WaitingForInput));
+        app.recompute_visible();
+        // visible: [s1, s2] at positions [0, 1]
+        app.selected = 1; // s2 selected
+        app.toggle_show_terminated(); // now show_terminated=true; visible: [s0, s1, s2]
+        // s2 should now be at visible position 2
+        assert_eq!(app.selected, 2);
+        assert!(app.show_terminated);
+    }
+
+    #[test]
+    fn toggle_show_terminated_resets_selection_if_selected_becomes_hidden() {
+        let logs = LogBuffer::new();
+        let config = crate::config::Config::default();
+        let mut app = App::new(logs, config);
+        app.sessions.clear();
+        app.sessions.push(make_session("s0", "proj0", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s1", "proj1", SessionStatus::Dead));
+        app.show_terminated = true;
+        app.recompute_visible();
+        app.selected = 1; // s1 (Dead) at visible position 1
+        app.toggle_show_terminated(); // hides terminated → s1 disappears
+        assert_eq!(app.selected, 0);
     }
 
     // --- App: toggle_log_viewer ---

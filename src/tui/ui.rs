@@ -449,7 +449,7 @@ fn draw_detail(f: &mut Frame, area: Rect, app: &App) {
 fn draw_detailed_view(f: &mut Frame, area: Rect, app: &App) {
     let card_height: u16 = 6;
     let visible_cards = (area.height / card_height) as usize;
-    if app.sessions.is_empty() {
+    if app.visible_count() == 0 {
         let block = Block::default().borders(Borders::ALL).title(" Sessions ");
         let p = Paragraph::new("  No sessions").block(block);
         f.render_widget(p, area);
@@ -477,12 +477,16 @@ fn draw_detailed_view(f: &mut Frame, area: Rect, app: &App) {
         .constraints(constraints)
         .split(inner);
 
-    for (vi, session_idx) in (scroll_offset..app.sessions.len())
+    for (vi, vis_pos) in (scroll_offset..app.visible_count())
         .take(visible_cards)
         .enumerate()
     {
-        let s = &app.sessions[session_idx];
-        let selected = session_idx == app.selected;
+        let real_idx = match app.visible_session_index(vis_pos) {
+            Some(i) => i,
+            None => break,
+        };
+        let s = &app.sessions[real_idx];
+        let selected = vis_pos == app.selected;
         let card_area = card_areas[vi];
 
         let status_style = match s.status {
@@ -632,6 +636,8 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         v.extend([
             Span::styled("/", Style::default().fg(Color::Yellow)),
             Span::raw(":search  "),
+            Span::styled("t", Style::default().fg(Color::Yellow)),
+            Span::raw(":terminated  "),
             Span::styled("l", Style::default().fg(Color::Yellow)),
             Span::raw(":logs  "),
             Span::styled("space", Style::default().fg(Color::Yellow)),

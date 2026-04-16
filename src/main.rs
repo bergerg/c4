@@ -255,6 +255,7 @@ fn run(
                         KeyCode::Char('S') => app.cycle_sort_prev(),
                         KeyCode::Char('o') => app.toggle_sort_dir(),
                         KeyCode::Char('/') => app.start_search(),
+                        KeyCode::Char('t') => app.toggle_show_terminated(),
                         KeyCode::Esc => app.clear_search(),
                         _ => {}
                     }
@@ -437,11 +438,11 @@ fn handle_search_key(app: &mut App, code: KeyCode) {
         KeyCode::Enter => app.stop_search(),
         KeyCode::Backspace => {
             app.search_query.pop();
-            app.update_search_filter();
+            app.recompute_visible();
         }
         KeyCode::Char(c) => {
             app.search_query.push(c);
-            app.update_search_filter();
+            app.recompute_visible();
         }
         KeyCode::Down | KeyCode::Up => {
             // Allow navigation while searching
