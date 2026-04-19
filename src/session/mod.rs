@@ -33,7 +33,8 @@ pub struct Session {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionStatus {
-    WaitingForInput,
+    WaitingForApproval,
+    Idle,
     Thinking,
     Dead,
 }
@@ -41,7 +42,8 @@ pub enum SessionStatus {
 impl SessionStatus {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::WaitingForInput => "WAITING",
+            Self::WaitingForApproval => "WAITING",
+            Self::Idle => "IDLE",
             Self::Thinking => "THINKING",
             Self::Dead => "TERMINATED",
         }
@@ -102,7 +104,8 @@ mod tests {
 
     #[test]
     fn session_status_label_waiting() {
-        assert_eq!(SessionStatus::WaitingForInput.label(), "WAITING");
+        assert_eq!(SessionStatus::WaitingForApproval.label(), "WAITING");
+        assert_eq!(SessionStatus::Idle.label(), "IDLE");
     }
 
     #[test]

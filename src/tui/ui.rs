@@ -150,7 +150,8 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         .iter()
         .map(|&(vis_pos, real_idx, s)| {
             let status_style = match s.status {
-                SessionStatus::WaitingForInput => Style::default().fg(Color::Yellow),
+                SessionStatus::WaitingForApproval => Style::default().fg(Color::Yellow),
+                SessionStatus::Idle => Style::default().fg(Color::Magenta),
                 SessionStatus::Thinking => Style::default().fg(Color::Green),
                 SessionStatus::Dead => Style::default().fg(Color::Red),
             };
@@ -193,7 +194,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
                         .to_string(),
                 ),
                 Cell::from(s.session_id[..8].to_string()),
-                Cell::from(s.status.label()).style(status_style),
+                Cell::from(Span::styled(s.status.label(), status_style)),
                 Cell::from(if s.status == SessionStatus::Dead || s.context_usage.current_tokens == 0 {
                     " -- ".to_string()
                 } else {
@@ -490,7 +491,8 @@ fn draw_detailed_view(f: &mut Frame, area: Rect, app: &App) {
         let card_area = card_areas[vi];
 
         let status_style = match s.status {
-            SessionStatus::WaitingForInput => Style::default().fg(Color::Yellow),
+            SessionStatus::WaitingForApproval => Style::default().fg(Color::Yellow),
+            SessionStatus::Idle => Style::default().fg(Color::DarkGray),
             SessionStatus::Thinking => Style::default().fg(Color::Green),
             SessionStatus::Dead => Style::default().fg(Color::DarkGray),
         };

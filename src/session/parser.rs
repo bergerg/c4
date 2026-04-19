@@ -15,6 +15,7 @@ pub struct ParsedSession {
     pub first_user_message: Option<String>,
     pub last_message_preview: Option<String>,
     pub last_message_role: Option<String>,
+    pub last_stop_reason: Option<String>,
     pub model: Option<String>,
     pub git_branch: Option<String>,
     pub total_usage: TokenUsage,
@@ -39,6 +40,7 @@ struct Message {
     content: Option<serde_json::Value>,
     model: Option<String>,
     usage: Option<Usage>,
+    stop_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -59,6 +61,7 @@ pub fn parse_session_jsonl(path: &Path) -> Result<ParsedSession> {
     let mut last_message_at: Option<DateTime<Utc>> = None;
     let mut last_message_preview: Option<String> = None;
     let mut last_message_role: Option<String> = None;
+    let mut last_stop_reason: Option<String> = None;
     let mut model: Option<String> = None;
     let mut git_branch: Option<String> = None;
     let mut total_usage = TokenUsage::default();
@@ -153,6 +156,13 @@ pub fn parse_session_jsonl(path: &Path) -> Result<ParsedSession> {
                 track_tools(content, entry_type, &mut pending_agents, &mut pending_bg_jobs);
             }
 
+            // Track stop_reason from assistant messages
+            if entry_type == "assistant" {
+                if let Some(sr) = &msg.stop_reason {
+                    last_stop_reason = Some(sr.clone());
+                }
+            }
+
             // Accumulate usage from assistant messages
             if entry_type == "assistant" {
                 if let Some(usage) = &msg.usage {
@@ -192,6 +202,7 @@ pub fn parse_session_jsonl(path: &Path) -> Result<ParsedSession> {
         last_message_at,
         last_message_preview,
         last_message_role,
+        last_stop_reason,
         model,
         git_branch,
         total_usage,

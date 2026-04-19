@@ -425,7 +425,7 @@ pub fn discover_sessions() -> Result<Vec<Session>> {
             parsed
                 .as_ref()
                 .map(|p| status::detect_status(p, &Some(info.jsonl_path.clone())))
-                .unwrap_or(SessionStatus::WaitingForInput)
+                .unwrap_or(SessionStatus::Idle)
         };
 
         let message_count = parsed
@@ -493,12 +493,13 @@ pub fn discover_sessions() -> Result<Vec<Session>> {
         });
     }
 
-    // Sort: waiting first, then thinking, then dead — within each group by started_at desc
+    // Sort: waiting-for-approval first, then idle, then thinking, then dead
     fn status_rank(s: &SessionStatus) -> u8 {
         match s {
-            SessionStatus::WaitingForInput => 0,
-            SessionStatus::Thinking => 1,
-            SessionStatus::Dead => 2,
+            SessionStatus::WaitingForApproval => 0,
+            SessionStatus::Idle => 1,
+            SessionStatus::Thinking => 2,
+            SessionStatus::Dead => 3,
         }
     }
     sessions.sort_by(|a, b| {

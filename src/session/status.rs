@@ -25,8 +25,13 @@ pub fn detect_status(parsed: &ParsedSession, jsonl_path: &Option<PathBuf>) -> Se
     match parsed.last_message_role.as_deref() {
         Some("user") => SessionStatus::Thinking,
         Some("assistant") if recently_modified => SessionStatus::Thinking,
-        Some("assistant") => SessionStatus::WaitingForInput,
-        _ => SessionStatus::WaitingForInput,
+        Some("assistant") => {
+            match parsed.last_stop_reason.as_deref() {
+                Some("tool_use") => SessionStatus::WaitingForApproval,
+                _ => SessionStatus::Idle,
+            }
+        }
+        _ => SessionStatus::Idle,
     }
 }
 
@@ -36,7 +41,7 @@ mod tests {
     use crate::session::{ContextUsage, TokenUsage};
     use crate::session::parser::ParsedSession;
 
-    fn make_parsed(last_role: Option<&str>) -> ParsedSession {
+    fn make_parsed(last_role: Option<&str>, last_stop_reason: Option<&str>) -> ParsedSession {
         ParsedSession {
             message_count: 1,
             first_message_at: None,
@@ -44,6 +49,7 @@ mod tests {
             first_user_message: None,
             last_message_preview: None,
             last_message_role: last_role.map(|s| s.to_string()),
+            last_stop_reason: last_stop_reason.map(|s| s.to_string()),
             model: None,
             git_branch: None,
             total_usage: TokenUsage::default(),
@@ -55,20 +61,32 @@ mod tests {
 
     #[test]
     fn user_role_is_thinking() {
-        let parsed = make_parsed(Some("user"));
+        let parsed = make_parsed(Some("user"), None);
         assert_eq!(detect_status(&parsed, &None), SessionStatus::Thinking);
     }
 
     #[test]
-    fn assistant_role_with_no_file_is_waiting() {
-        let parsed = make_parsed(Some("assistant"));
-        assert_eq!(detect_status(&parsed, &None), SessionStatus::WaitingForInput);
+    fn assistant_end_turn_is_idle() {
+        let parsed = make_parsed(Some("assistant"), Some("end_turn"));
+        assert_eq!(detect_status(&parsed, &None), SessionStatus::Idle);
     }
 
     #[test]
-    fn no_role_is_waiting() {
-        let parsed = make_parsed(None);
-        assert_eq!(detect_status(&parsed, &None), SessionStatus::WaitingForInput);
+    fn assistant_tool_use_is_waiting_for_approval() {
+        let parsed = make_parsed(Some("assistant"), Some("tool_use"));
+        assert_eq!(detect_status(&parsed, &None), SessionStatus::WaitingForApproval);
+    }
+
+    #[test]
+    fn assistant_no_stop_reason_is_idle() {
+        let parsed = make_parsed(Some("assistant"), None);
+        assert_eq!(detect_status(&parsed, &None), SessionStatus::Idle);
+    }
+
+    #[test]
+    fn no_role_is_idle() {
+        let parsed = make_parsed(None, None);
+        assert_eq!(detect_status(&parsed, &None), SessionStatus::Idle);
     }
 
     #[test]
@@ -76,7 +94,7 @@ mod tests {
         use std::fs;
         let path = std::env::temp_dir().join("c4_status_test.jsonl");
         fs::write(&path, "").unwrap();
-        let parsed = make_parsed(Some("assistant"));
+        let parsed = make_parsed(Some("assistant"), Some("end_turn"));
         assert_eq!(detect_status(&parsed, &Some(path.clone())), SessionStatus::Thinking);
         fs::remove_file(path).ok();
     }
