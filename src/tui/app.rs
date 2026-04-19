@@ -478,7 +478,7 @@ impl App {
             let cmp = match self.sort_column {
                 SortColumn::Status => {
                     fn rank(s: &SessionStatus) -> u8 {
-                        match s { SessionStatus::WaitingForInput => 0, SessionStatus::Thinking => 1, SessionStatus::Dead => 2 }
+                        match s { SessionStatus::WaitingForApproval => 0, SessionStatus::Idle => 1, SessionStatus::Thinking => 2, SessionStatus::Dead => 3 }
                     }
                     rank(&a.status).cmp(&rank(&b.status))
                 }
@@ -1247,7 +1247,7 @@ mod tests {
             app.sessions.push(make_session(
                 &format!("s{}", i),
                 &format!("proj{}", i),
-                SessionStatus::WaitingForInput,
+                SessionStatus::Idle,
             ));
         }
         app.recompute_visible();
@@ -1502,7 +1502,7 @@ mod tests {
         let config = crate::config::Config::default();
         let mut app = App::new(logs, config);
         app.sessions.clear();
-        app.sessions.push(make_session("s0", "proj0", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s0", "proj0", SessionStatus::Idle));
         app.sessions.push(make_session("s1", "proj1", SessionStatus::Thinking));
         app.sessions.push(make_session("s2", "proj2", SessionStatus::Dead));
         app.recompute_visible();
@@ -1516,7 +1516,7 @@ mod tests {
         let config = crate::config::Config::default();
         let mut app = App::new(logs, config);
         app.sessions.clear();
-        app.sessions.push(make_session("s0", "proj0", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s0", "proj0", SessionStatus::Idle));
         app.sessions.push(make_session("s1", "proj1", SessionStatus::Dead));
         app.show_terminated = true;
         app.recompute_visible();
@@ -1529,9 +1529,9 @@ mod tests {
         let config = crate::config::Config::default();
         let mut app = App::new(logs, config);
         app.sessions.clear();
-        app.sessions.push(make_session("s0", "alpha", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s0", "alpha", SessionStatus::Idle));
         app.sessions.push(make_session("s1", "alpha", SessionStatus::Dead));
-        app.sessions.push(make_session("s2", "beta", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s2", "beta", SessionStatus::Idle));
         app.search_query = "alpha".to_string();
         // show_terminated defaults to false
         app.recompute_visible();
@@ -1548,7 +1548,7 @@ mod tests {
         let config = crate::config::Config::default();
         let mut app = App::new(logs, config);
         app.sessions.clear();
-        app.sessions.push(make_session("s0", "proj0", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s0", "proj0", SessionStatus::Idle));
         app.sessions.push(make_session("s1", "proj1", SessionStatus::Dead));
         app.recompute_visible();
         assert_eq!(app.visible_count(), 1);
@@ -1563,7 +1563,7 @@ mod tests {
         let config = crate::config::Config::default();
         let mut app = App::new(logs, config);
         app.sessions.clear();
-        app.sessions.push(make_session("s0", "proj0", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s0", "proj0", SessionStatus::Idle));
         app.sessions.push(make_session("s1", "proj1", SessionStatus::Dead));
         app.show_terminated = true;
         app.recompute_visible();
@@ -1580,8 +1580,8 @@ mod tests {
         app.sessions.clear();
         // s0: Dead — hidden when show_terminated=false, appears at pos 0 when true
         app.sessions.push(make_session("s0", "proj0", SessionStatus::Dead));
-        app.sessions.push(make_session("s1", "proj1", SessionStatus::WaitingForInput));
-        app.sessions.push(make_session("s2", "proj2", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s1", "proj1", SessionStatus::Idle));
+        app.sessions.push(make_session("s2", "proj2", SessionStatus::Idle));
         app.recompute_visible();
         // visible: [s1, s2] at positions [0, 1]
         app.selected = 1; // s2 selected
@@ -1597,7 +1597,7 @@ mod tests {
         let config = crate::config::Config::default();
         let mut app = App::new(logs, config);
         app.sessions.clear();
-        app.sessions.push(make_session("s0", "proj0", SessionStatus::WaitingForInput));
+        app.sessions.push(make_session("s0", "proj0", SessionStatus::Idle));
         app.sessions.push(make_session("s1", "proj1", SessionStatus::Dead));
         app.show_terminated = true;
         app.recompute_visible();

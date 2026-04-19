@@ -150,7 +150,8 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         .iter()
         .map(|&(vis_pos, real_idx, s)| {
             let status_style = match s.status {
-                SessionStatus::WaitingForInput => Style::default().fg(Color::Yellow),
+                SessionStatus::WaitingForApproval => Style::default().fg(Color::Yellow),
+                SessionStatus::Idle => Style::default().fg(Color::Magenta),
                 SessionStatus::Thinking => Style::default().fg(Color::Green),
                 SessionStatus::Dead => Style::default().fg(Color::Red),
             };
@@ -490,7 +491,8 @@ fn draw_detailed_view(f: &mut Frame, area: Rect, app: &App) {
         let card_area = card_areas[vi];
 
         let status_style = match s.status {
-            SessionStatus::WaitingForInput => Style::default().fg(Color::Yellow),
+            SessionStatus::WaitingForApproval => Style::default().fg(Color::Yellow),
+            SessionStatus::Idle => Style::default().fg(Color::DarkGray),
             SessionStatus::Thinking => Style::default().fg(Color::Green),
             SessionStatus::Dead => Style::default().fg(Color::DarkGray),
         };
