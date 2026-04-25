@@ -29,13 +29,6 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let term_program = std::env::var("TERM_PROGRAM").unwrap_or_default();
-    if term_program != "iTerm.app" {
-        eprintln!("c4 currently only supports iTerm2.");
-        eprintln!("Detected terminal: {}", if term_program.is_empty() { "unknown" } else { &term_program });
-        std::process::exit(1);
-    }
-
     if std::env::args().any(|a| a == "--debug") {
         let sessions = session::discovery::discover_sessions()?;
         for s in &sessions {

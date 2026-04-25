@@ -1,6 +1,6 @@
 # C4 - Claude Code Command Center
 
-macOS-only TUI dashboard for monitoring Claude Code sessions. Requires iTerm2 — the app exits immediately on any other terminal.
+macOS-only TUI dashboard for monitoring Claude Code sessions. Runs in any terminal; the session focus feature works only when sessions are running in iTerm2.
 
 ## Build & Run
 
