@@ -459,13 +459,11 @@ pub fn discover_sessions() -> Result<Vec<Session>> {
                         .as_ref()
                         .and_then(|e| e.git_branch.clone())
                 }),
-            summary: info
-                .index_entry
+            summary: parsed
                 .as_ref()
-                .and_then(|e| e.summary.clone())
-                .or_else(|| {
-                    parsed.as_ref().and_then(|p| p.first_user_message.clone())
-                }),
+                .and_then(|p| p.last_recap.clone())
+                .or_else(|| info.index_entry.as_ref().and_then(|e| e.summary.clone()))
+                .or_else(|| parsed.as_ref().and_then(|p| p.first_user_message.clone())),
             project_name: project_name_from_cwd(&info.cwd),
             status: session_status,
             message_count,

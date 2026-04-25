@@ -56,6 +56,7 @@ mod tests {
             context_usage: ContextUsage::default(),
             active_agents: 0,
             active_bg_jobs: 0,
+            last_recap: None,
         }
     }
 

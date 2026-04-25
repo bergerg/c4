@@ -22,12 +22,16 @@ pub struct ParsedSession {
     pub context_usage: ContextUsage,
     pub active_agents: u32,
     pub active_bg_jobs: u32,
+    /// Most recent session recap (from `away_summary` system entries).
+    pub last_recap: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct JournalEntry {
     #[serde(rename = "type")]
     entry_type: Option<String>,
+    subtype: Option<String>,
+    content: Option<String>,
     message: Option<Message>,
     timestamp: Option<String>,
     #[serde(rename = "gitBranch")]
@@ -66,6 +70,7 @@ pub fn parse_session_jsonl(path: &Path) -> Result<ParsedSession> {
     let mut git_branch: Option<String> = None;
     let mut total_usage = TokenUsage::default();
     let mut last_input_tokens: u64 = 0;
+    let mut last_recap: Option<String> = None;
     // Track pending Agent/background-Bash tool calls
     let mut pending_agents: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut pending_bg_jobs: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -89,6 +94,21 @@ pub fn parse_session_jsonl(path: &Path) -> Result<ParsedSession> {
             Some(t) => t.as_str(),
             None => continue,
         };
+
+        if entry_type == "system"
+            && entry.subtype.as_deref() == Some("away_summary")
+        {
+            if let Some(content) = &entry.content {
+                let text = content
+                    .trim_end_matches(" (disable recaps in /config)")
+                    .trim()
+                    .to_string();
+                if !text.is_empty() {
+                    last_recap = Some(text);
+                }
+            }
+            continue;
+        }
 
         if entry_type != "user" && entry_type != "assistant" {
             continue;
@@ -209,6 +229,7 @@ pub fn parse_session_jsonl(path: &Path) -> Result<ParsedSession> {
         context_usage,
         active_agents: pending_agents.len() as u32,
         active_bg_jobs: pending_bg_jobs.len() as u32,
+        last_recap,
     })
 }
 
@@ -488,5 +509,59 @@ mod tests {
     fn parse_nonexistent_file_returns_error() {
         let path = std::path::Path::new("/nonexistent/path/session.jsonl");
         assert!(parse_session_jsonl(path).is_err());
+    }
+
+    #[test]
+    fn parse_extracts_last_recap_from_away_summary() {
+        let content = concat!(
+            "{\"type\":\"user\",\"timestamp\":\"2024-01-01T00:00:00Z\",",
+            "\"message\":{\"role\":\"user\",\"content\":\"Initial task\"}}\n",
+            "{\"type\":\"system\",\"subtype\":\"away_summary\",",
+            "\"content\":\"Completed the refactor.\",",
+            "\"timestamp\":\"2024-01-01T01:00:00Z\"}\n"
+        );
+        let path = write_tmp_jsonl("recap_basic", content);
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert_eq!(parsed.last_recap.as_deref(), Some("Completed the refactor."));
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_recap_strips_disable_hint() {
+        let content = concat!(
+            "{\"type\":\"system\",\"subtype\":\"away_summary\",",
+            "\"content\":\"Fixed the bug. (disable recaps in /config)\",",
+            "\"timestamp\":\"2024-01-01T01:00:00Z\"}\n"
+        );
+        let path = write_tmp_jsonl("recap_strip_hint", content);
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert_eq!(parsed.last_recap.as_deref(), Some("Fixed the bug."));
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_recap_keeps_most_recent() {
+        let content = concat!(
+            "{\"type\":\"system\",\"subtype\":\"away_summary\",",
+            "\"content\":\"First recap.\",\"timestamp\":\"2024-01-01T01:00:00Z\"}\n",
+            "{\"type\":\"system\",\"subtype\":\"away_summary\",",
+            "\"content\":\"Second recap.\",\"timestamp\":\"2024-01-01T02:00:00Z\"}\n"
+        );
+        let path = write_tmp_jsonl("recap_latest", content);
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert_eq!(parsed.last_recap.as_deref(), Some("Second recap."));
+        fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn parse_no_recap_returns_none() {
+        let content = concat!(
+            "{\"type\":\"user\",\"timestamp\":\"2024-01-01T00:00:00Z\",",
+            "\"message\":{\"role\":\"user\",\"content\":\"Hello\"}}\n"
+        );
+        let path = write_tmp_jsonl("recap_none", content);
+        let parsed = parse_session_jsonl(&path).unwrap();
+        assert!(parsed.last_recap.is_none());
+        fs::remove_file(path).ok();
     }
 }
