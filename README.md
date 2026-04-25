@@ -4,16 +4,16 @@ A terminal dashboard for monitoring and managing all your Claude Code sessions f
 
 C4 reads Claude Code's session data from `~/.claude/` and presents a live overview of every running (and recently exited) session, including status, token usage, estimated cost, context window fill, and more.
 
-> **Requires iTerm2.** macOS only.
+> macOS only.
 
 ## Features
 
-- **Session dashboard** — lists all Claude Code sessions with project name, git branch, status (WAITING / THINKING / DEAD), context usage percentage, estimated cost, and message count.
+- **Session dashboard** — lists all Claude Code sessions with project name, status (WAITING / THINKING / IDLE / DEAD), context usage percentage, estimated cost, and message count. The summary column shows the session recap when available, falling back to the git branch.
 - **Live refresh** — watches `~/.claude/` for file changes and auto-refreshes. Manual refresh with `Space r`.
 - **Detail panel** — shows the selected session's duration, model, PID, last message preview, full cost breakdown (input / output / cache read / cache write tokens), and a context window gauge.
-- **Focus switching** — press Enter to bring the selected session's iTerm2 tab into focus. When multiple terminals share the same session, a numbered picker lets you choose. Uses session ID caching for near-instant repeat focuses.
-- **Global hotkey** — a system-wide keyboard shortcut (default: `Option+Shift+=`) that brings C4's terminal into focus from any app. Requires macOS Accessibility permission on first use.
-- **New session launcher** — `Space n` opens a fuzzy directory picker. Type to filter, select a directory, and C4 opens a new iTerm2 tab with `claude` running in that directory.
+- **Focus switching** — press Enter to bring the selected session's terminal into focus. Requires the session to be running in iTerm2. When multiple terminals share the same session, a numbered picker lets you choose. Uses session ID caching for near-instant repeat focuses.
+- **Global hotkey** — a system-wide keyboard shortcut (default: `Option+Shift+=`) that brings C4's terminal into focus from any app. Requires C4 to be running in iTerm2 and macOS Accessibility permission on first use.
+- **New session launcher** — `Space n` opens a fuzzy directory picker. Type to filter, select a directory, and C4 opens a new tab with `claude` running in that directory. Requires iTerm2.
 - **Ephemeral sessions** — `Space e` launches a clean-slate Claude Code session with no project context. Runs in a temporary directory, shows in the dashboard marked as `~ ephemeral`, and is fully cleaned up on exit (no history, no leftover files).
 - **Close session** — `Space x` terminates the selected Claude Code session.
 - **Search** — press `/` to filter sessions by name. Press Esc to clear.
@@ -25,9 +25,10 @@ C4 reads Claude Code's session data from `~/.claude/` and presents a live overvi
 
 ## Requirements
 
-- macOS with iTerm2
+- macOS
 - Claude Code CLI installed and on PATH
 - Rust toolchain (for building from source; auto-installed if missing)
+- iTerm2 (optional — required for session focus, new session launcher, and global hotkey)
 
 ## Installation
 
